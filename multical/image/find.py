@@ -48,8 +48,10 @@ def find_images_matching(camera_dirs, extensions=image_extensions):
 def find_images_unmatched(camera_dirs, extensions=image_extensions):
   image_files = find_unmatched_files(camera_dirs, extensions)
 
-  image_filenames = [[path.join(camera_dir, file) for file in image_names]
-    for camera_dir, image_names in image_files.items()]
+  image_filenames = [
+    [path.join(camera_dirs[camera_name], file) for file in image_names]
+    for camera_name, image_names in image_files.items()
+  ]
 
   return image_files.keys(), image_filenames
 

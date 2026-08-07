@@ -16,11 +16,73 @@ from .optimization.parameters import Parameters
 
 from multiprocessing.pool import ThreadPool
 from multical.threading import cpu_count
+from multical.io.logging import info
 
 import cv2
 from tqdm import tqdm
 
 from structs.struct import split_list
+
+
+def select_intrinsic_outlier_views(
+    error_per_view,
+    absolute_limit=0.8,
+    mad_scale=3.0,
+    max_reject_fraction=0.05,
+    min_views=15):
+  """Select a bounded set of robust per-view intrinsic outliers."""
+  errors = np.asarray(error_per_view, dtype=np.float64).reshape(-1)
+  if not np.all(np.isfinite(errors)):
+    raise ValueError("intrinsic per-view errors must be finite")
+  if absolute_limit is not None and float(absolute_limit) < 0:
+    raise ValueError("view_error_limit must be non-negative or None")
+  if float(mad_scale) < 0:
+    raise ValueError("view_mad_scale must be non-negative")
+  if not 0.0 <= float(max_reject_fraction) <= 1.0:
+    raise ValueError("max_reject_fraction must be between 0 and 1")
+  if int(min_views) < 3:
+    raise ValueError("min_views must be at least 3")
+
+  if errors.size == 0:
+    return [], {
+      'median_RMS': None,
+      'MAD_RMS': None,
+      'robust_threshold': None,
+      'threshold': None,
+      'candidate_count': 0,
+      'selected_count': 0
+    }
+
+  median = float(np.median(errors))
+  mad = float(np.median(np.abs(errors - median)))
+  robust_threshold = median + float(mad_scale) * 1.4826 * mad
+  threshold = (
+    robust_threshold
+    if absolute_limit is None
+    else max(float(absolute_limit), robust_threshold)
+  )
+  candidates = np.flatnonzero(errors > threshold)
+  available = max(int(errors.size) - int(min_views), 0)
+  fraction_limit = (
+    int(np.ceil(errors.size * float(max_reject_fraction)))
+    if max_reject_fraction > 0 else 0
+  )
+  reject_count = min(candidates.size, available, fraction_limit)
+  if reject_count:
+    candidates = candidates[
+      np.argsort(errors[candidates])[::-1][:reject_count]
+    ]
+  else:
+    candidates = np.array([], dtype=int)
+
+  return [int(index) for index in candidates], {
+    'median_RMS': median,
+    'MAD_RMS': mad,
+    'robust_threshold': float(robust_threshold),
+    'threshold': float(threshold),
+    'candidate_count': int(np.count_nonzero(errors > threshold)),
+    'selected_count': int(candidates.size)
+  }
 
 
 
@@ -67,41 +129,168 @@ class Camera(Parameters):
 
   @staticmethod
   def calibrate(boards, intrinsic_error_limit, detections, image_size, max_iter=10, eps=1e-3,
-                model='standard', fix_aspect=False, has_skew=False, flags=0, max_images=None):
+                model='standard', fix_aspect=False, has_skew=False, flags=0,
+                max_images=None, min_board_coverage=0.8,
+                view_error_limit=0.8, view_mad_scale=3.0,
+                filter_iterations=3, max_reject_fraction=0.05,
+                min_views=15, selection_seed=0):
     '''
     iteratively selects best images to calculate intrinsic parameters
     '''
 
     points = calibration_points(boards, detections)
+    detected_view_count = len(points.corners)
+    detected_image_ids = sorted(set(
+      int(value) for value in points.image_ids
+    ))
+    detected_image_count = len(detected_image_ids)
+    points, quality_rejected_image_ids, image_board_coverage = (
+      filter_incomplete_images(points, boards, min_board_coverage)
+    )
+    quality_candidate_view_count = len(points.corners)
+    quality_candidate_image_ids = sorted(set(
+      int(value) for value in points.image_ids
+    ))
+    quality_candidate_image_count = len(quality_candidate_image_ids)
     if max_images is not None:
-      points = top_detection_coverage(points, max_images, image_size)
+      points = top_detection_coverage(
+        points,
+        max_images,
+        image_size,
+        seed=selection_seed
+      )
+    candidate_view_count = len(points.corners)
+    candidate_image_ids = sorted(set(
+      int(value) for value in points.image_ids
+    ))
+    candidate_image_count = len(candidate_image_ids)
 
     # termination criteria
     criteria = (cv2.TERM_CRITERIA_EPS +
                 cv2.TERM_CRITERIA_MAX_ITER, max_iter, eps)
     flags = Camera.flags(model, fix_aspect) | flags
 
-    err = intrinsic_error_limit
-    while abs(err) >= intrinsic_error_limit:
+    filter_history = []
+    rejected_views = []
+    filter_iterations = max(int(filter_iterations), 0)
+    filter_converged = False
+    filter_limit_reached = False
+
+    # Each rejection round is followed by another calibration. The extra
+    # final fit ensures the returned K/dist/error describe the filtered data,
+    # rather than the observations from immediately before the last removal.
+    for filter_round in range(filter_iterations + 1):
       err, K, dist, r, t, _, _, error_perView = cv2.calibrateCameraExtended(points.object_points, points.corners,
                                                                             image_size, None, None, criteria=criteria,
                                                                             flags=flags)
-      if len(error_perView) >= 15:
-        err = float("{:.2f}".format(err))
-        threshold = np.quantile(error_perView, 0.95)
-        inliers = [(i) for i, err in enumerate(error_perView) if err < threshold]
-        points.object_points = np.array([points.object_points[i] for i in inliers], dtype=object)
-        points.corners = np.array([points.corners[i] for i in inliers], dtype=object)
-        points.ids = np.array([points.ids[i] for i in inliers], dtype=object)
-        points.board_offset = np.array([points.board_offset[i] for i in inliers], dtype=object)
-        points.image_ids = np.array([points.image_ids[i] for i in inliers], dtype=object)
-      else:
-        intrinsic_error_limit += 0.1
+
+      rejected, filter_stats = select_intrinsic_outlier_views(
+        error_perView,
+        absolute_limit=view_error_limit,
+        mad_scale=view_mad_scale,
+        max_reject_fraction=max_reject_fraction,
+        min_views=min_views
+      )
+      can_reject = filter_round < filter_iterations
+      applied_rejected = rejected if can_reject else []
+      rejected_set = set(int(index) for index in rejected)
+      rejected_this_round = [
+        {
+          'image_id': int(points.image_ids[index]),
+          'board_id': int(points.board_offset[index]),
+          'RMS': float(np.asarray(error_perView).reshape(-1)[index])
+        }
+        for index in applied_rejected
+      ]
+      pending_outliers = [
+        {
+          'image_id': int(points.image_ids[index]),
+          'board_id': int(points.board_offset[index]),
+          'RMS': float(np.asarray(error_perView).reshape(-1)[index])
+        }
+        for index in rejected
+        if not can_reject
+      ]
+      filter_history.append({
+        'round': int(filter_round + 1),
+        'view_count': int(len(points.corners)),
+        'overall_RMS': float(err),
+        **filter_stats,
+        'rejected_views': rejected_this_round,
+        'pending_outlier_views': pending_outliers
+      })
+      rejected_views.extend(rejected_this_round)
+      if filter_stats['candidate_count'] == 0:
+        filter_converged = True
+        break
+      if not can_reject:
+        filter_limit_reached = True
+        break
+      if not rejected_set:
+        break
+
+      keep = [
+        index for index in range(len(points.corners))
+        if index not in rejected_set
+      ]
+      points = points._map(index_list, keep)
+
+    calibrated_dataset = {
+      'board_ids': [int(value) for value in points.board_offset],
+      'image_ids': [int(value) for value in points.image_ids],
+      'point_counts': [int(len(corners)) for corners in points.corners],
+      'detected_view_count': int(detected_view_count),
+      'quality_candidate_view_count': int(
+        quality_candidate_view_count
+      ),
+      'candidate_view_count': int(candidate_view_count),
+      'detected_image_count': int(detected_image_count),
+      'quality_candidate_image_count': int(
+        quality_candidate_image_count
+      ),
+      'candidate_image_count': int(candidate_image_count),
+      'detected_image_ids': detected_image_ids,
+      'quality_candidate_image_ids': quality_candidate_image_ids,
+      'quality_rejected_image_ids': quality_rejected_image_ids,
+      'candidate_image_ids': candidate_image_ids,
+      'image_board_coverage': image_board_coverage,
+      'min_board_coverage': float(min_board_coverage),
+      'view_error_limit': (
+        float(view_error_limit)
+        if view_error_limit is not None else None
+      ),
+      'view_mad_scale': float(view_mad_scale),
+      'filter_iterations': int(filter_iterations),
+      'filter_converged': bool(filter_converged),
+      'filter_limit_reached': bool(filter_limit_reached),
+      'selection_seed': int(selection_seed),
+      'filter_history': filter_history,
+      'reprojection_rejected_views': rejected_views,
+      'reprojection_rejected_image_ids': sorted(set(
+        int(view['image_id']) for view in rejected_views
+      )),
+      'overall_error_limit': float(intrinsic_error_limit),
+      'overall_error_limit_met': bool(
+        abs(float(err)) < float(intrinsic_error_limit)
+      )
+    }
+    if not calibrated_dataset['filter_converged']:
+      info(
+        "Intrinsic view filtering stopped with unresolved outliers "
+        "(iteration or minimum-view guard reached)."
+      )
+    if not calibrated_dataset['overall_error_limit_met']:
+      info(
+        "Intrinsic RMS {:.3f} remains above target {:.3f}, but no "
+        "additional robust view outliers can be safely rejected.".format(
+          err, intrinsic_error_limit
+        )
+      )
 
     return Camera(intrinsic=K, dist=dist, image_size=image_size,
                   model=model, fix_aspect=fix_aspect, has_skew=has_skew,
                   error_perview=error_perView,
-                  intrinsic_dataset={'board_ids': list(points.board_offset), 'image_ids': list(points.image_ids)}
+                  intrinsic_dataset=calibrated_dataset
                   ), err
 
   def scale_image(self, factor):
@@ -200,7 +389,10 @@ def board_frames(board, detections):
 
 
 def index_list(xs, indexes):
-  return np.array(xs, dtype=object)[indexes].tolist()
+  # Indexing a uniform list through an object ndarray can expand it into a
+  # higher-dimensional object array; ``tolist`` then silently converts each
+  # OpenCV-compatible float32 ndarray into nested Python lists.
+  return [xs[int(index)] for index in indexes]
 
 
 def coverage(corners, bins):
@@ -216,11 +408,13 @@ def image_bins(image_size, approx_bins=10):
     for axis in [0, 1]]
 
 
-def top_detection_coverage(detections, k, image_size, approx_bins=10, jitter=0.1):
-  bins = image_bins(image_size, approx_bins=10)
+def top_detection_coverage(
+    detections, k, image_size, approx_bins=10, jitter=0.1, seed=0):
+  bins = image_bins(image_size, approx_bins=approx_bins)
   bin_jitter = jitter * (approx_bins * approx_bins)
+  rng = np.random.default_rng(seed)
 
-  sizes = [-coverage(corners, bins) + np.random.normal(0, bin_jitter) 
+  sizes = [-coverage(corners, bins) + rng.normal(0, bin_jitter)
     for corners in detections.corners]
 
   sorted = detections._map(index_list, np.argsort(sizes))
@@ -233,6 +427,52 @@ def calibration_points(boards, detections):
                   in enumerate(zip(boards, board_detections))]
 
   return reduce(operator.add, board_points)
+
+
+def filter_incomplete_images(points, boards, min_board_coverage):
+  """Remove whole images whose best detected board is too incomplete."""
+  threshold = float(min_board_coverage)
+  if not 0.0 <= threshold <= 1.0:
+    raise ValueError("min_board_coverage must be between 0 and 1")
+  if len(points.corners) == 0:
+    raise ValueError("no valid board detections for intrinsic calibration")
+
+  best_coverage = {}
+  for ids, board_id, image_id in zip(
+      points.ids, points.board_offset, points.image_ids):
+    board_point_count = len(boards[int(board_id)].points)
+    coverage_value = (
+      float(len(np.unique(ids))) / float(board_point_count)
+      if board_point_count else 0.0
+    )
+    image_id = int(image_id)
+    best_coverage[image_id] = max(
+      coverage_value, best_coverage.get(image_id, 0.0)
+    )
+
+  accepted = {
+    image_id for image_id, value in best_coverage.items()
+    if value >= threshold
+  }
+  rejected = sorted(set(best_coverage) - accepted)
+  if not accepted:
+    raise ValueError(
+      "all intrinsic images were rejected by min_board_coverage={:.3f}; "
+      "lower --intrinsic_min_board_coverage or improve the images".format(
+        threshold
+      )
+    )
+  indices = [
+    index for index, image_id in enumerate(points.image_ids)
+    if int(image_id) in accepted
+  ]
+  filtered = points._map(index_list, indices)
+  coverage_report = {
+    str(image_id): float(best_coverage[image_id])
+    for image_id in sorted(best_coverage)
+  }
+  return filtered, rejected, coverage_report
+
 
 def calibrate_cameras(boards, points, image_sizes, intrinsic_error_limit, **kwargs):
 

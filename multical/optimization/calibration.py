@@ -34,10 +34,43 @@ default_optimize = struct(
   motion = True
 )
 
-def select_threshold(quantile=0.75, factor=5.0):
+def select_threshold(
+    quantile=0.75, factor=5.0, minimum=None, maximum=None):
   def f(reprojection_error):
-    return np.quantile(reprojection_error, quantile) * factor
+    threshold = np.quantile(reprojection_error, quantile) * factor
+    if minimum is not None:
+      threshold = max(float(minimum), threshold)
+    if maximum is not None:
+      threshold = min(float(maximum), threshold)
+    return float(threshold)
   return f
+
+
+def reject_outlier_frames_mask(
+    valid, inliers, outlier_ratio=0.8, min_points=8):
+  """Reject camera frames dominated by point-level reprojection outliers."""
+  valid = np.asarray(valid, dtype=bool)
+  inliers = np.asarray(inliers, dtype=bool)
+  if valid.shape != inliers.shape:
+    raise ValueError("valid and inlier masks must have the same shape")
+  if valid.ndim < 3:
+    raise ValueError("calibration masks must include camera and frame axes")
+  if not 0.0 <= float(outlier_ratio) <= 1.0:
+    raise ValueError("frame outlier ratio must be between 0 and 1")
+  if int(min_points) < 1:
+    raise ValueError("frame outlier min points must be positive")
+
+  reduction_axes = tuple(range(2, valid.ndim))
+  valid_counts = valid.sum(axis=reduction_axes)
+  outlier_counts = (valid & ~inliers).sum(axis=reduction_axes)
+  frame_outliers = (
+    (valid_counts >= int(min_points)) &
+    (outlier_counts / np.maximum(valid_counts, 1) >= float(outlier_ratio))
+  )
+  expanded = frame_outliers[
+    (...,) + (None,) * (valid.ndim - frame_outliers.ndim)
+  ]
+  return inliers & ~expanded, frame_outliers
 
 
 class Calibration(parameters.Parameters):
@@ -251,19 +284,86 @@ class Calibration(parameters.Parameters):
 
     return self.copy(inlier_mask = inliers)
 
-  def adjust_outliers(self, num_adjustments=3, select_scale=None, select_outliers=None, **kwargs):
+  def reject_outlier_frames(self, outlier_ratio=0.8, min_points=8):
+    """Reject all observations in camera frames dominated by outliers."""
+    inliers, frame_outliers = reject_outlier_frames_mask(
+      self.valid,
+      self.inliers,
+      outlier_ratio=outlier_ratio,
+      min_points=min_points
+    )
+    newly_rejected = self.inliers.sum() - inliers.sum()
+    info(
+      "Rejecting {} whole camera frames at outlier ratio >= {:.1%}, "
+      "removing {} additional observations".format(
+        int(frame_outliers.sum()),
+        float(outlier_ratio),
+        int(newly_rejected)
+      )
+    )
+    return self.copy(inlier_mask=inliers)
+
+  def adjust_outliers(
+      self, num_adjustments=3, select_scale=None,
+      select_outliers=None, initial_loss=None,
+      frame_outlier_ratio=None, frame_outlier_min_points=8,
+      final_recheck_iterations=0, **kwargs):
     info(f"Beginning adjustments ({num_adjustments}) enabled: {self.optimize}, options: {kwargs}")
+
+    bundle_kwargs = dict(kwargs)
+    normal_loss = bundle_kwargs.pop('loss', 'linear')
+
+    def classify_outliers(calibration):
+      if select_outliers is not None:
+        calibration = calibration.reject_outliers(
+          select_outliers(calibration.reprojection_error)
+        )
+      if frame_outlier_ratio is not None:
+        calibration = calibration.reject_outlier_frames(
+          outlier_ratio=frame_outlier_ratio,
+          min_points=frame_outlier_min_points
+        )
+      return calibration
 
     for i in range(num_adjustments):
       self.report(f"Adjust_outliers {i}:")
       f_scale = apply_none(select_scale, self.reprojection_error) or 1.0
       if select_scale is not None:
         info(f"Auto scaling for outliers influence at {f_scale:.2f} pixels")
-      
-      if select_outliers is not None:
-        self = self.reject_outliers(select_outliers(self.reprojection_error))
+      self = classify_outliers(self)
+      round_loss = (
+        initial_loss
+        if i == 0 and initial_loss is not None else normal_loss
+      )
+      self = self.bundle_adjust(
+        f_scale=f_scale,
+        loss=round_loss,
+        **bundle_kwargs
+      )
 
-      self = self.bundle_adjust(f_scale=f_scale, **kwargs)
+    for i in range(max(int(final_recheck_iterations), 0)):
+      previous_inliers = self.inliers.copy()
+      reclassified = classify_outliers(self)
+      if np.array_equal(previous_inliers, reclassified.inliers):
+        info("Final outlier recheck converged after {} round(s)".format(i + 1))
+        self = reclassified
+        break
+      changed = int(np.count_nonzero(
+        previous_inliers != reclassified.inliers
+      ))
+      info(
+        "Final outlier recheck {} changed {} observations; refitting".format(
+          i + 1, changed
+        )
+      )
+      f_scale = apply_none(
+        select_scale, reclassified.reprojection_error
+      ) or 1.0
+      self = reclassified.bundle_adjust(
+        f_scale=f_scale,
+        loss=normal_loss,
+        **bundle_kwargs
+      )
     self.report(f"Adjust_outliers end:")
     return self
 
@@ -308,7 +408,5 @@ def error_stats(errors):
   mse = np.square(errors).mean()
   quantiles = np.array([np.quantile(errors, n) for n in [0, 0.25, 0.5, 0.75, 1]])
   return struct(mse = mse, rms = np.sqrt(mse), quantiles=quantiles, n = errors.size)
-
-
 
 

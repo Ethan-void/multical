@@ -37,7 +37,7 @@ The default method is to have folders named separately for each camera, with ima
 
 Camera names and image directories can be also specified by manually specifying camera names, and optionally specifying a pattern for the directory structure. 
 
-`multical calibrate --camera_pattern '{camera}/extrinsic' --cameras cam1,cam2,cam3` 
+`multical calibrate --camera_pattern '{camera}/extrinsic' --cameras cam1 cam2 cam3`
 
 By default the current directory is searched, it can be specified with `--image_path`.
 
@@ -68,15 +68,25 @@ A fixed number of images will be chosen for initial intrinsic calibration (incre
 
 The outputs from `multical calibrate` are written to the `--output_path` which by default is the image path unless specified. The name `calibration` (default) is specified by `--name`.
 
-* `calibration.json` - camera summary, intrinsic parameters, relative camera poses and camera rig poses
+* `calibration.json` - camera summary, intrinsic parameters, relative camera
+  poses, camera rig poses, and final bundle-adjustment quality. The `quality`
+  object contains `RMS` (final inlier reprojection RMS in pixels), `RMS_all`,
+  and the corresponding observation counts.
 
 * `calibration.log`  - log file of the calibration history
 * `calibration.detections.pkl`   - cached calibration pattern detections, making repeated calibrations much faster
 * `calibration.pkl`    - serialized workspace containing all the details for visualization, resuming calibration etc.
 
+When `multical intrinsic` is run separately, every camera in
+`intrinsic.json` also contains a `quality` object. It records OpenCV's
+intrinsic `RMS`, mean and maximum per-view RMS, the number of views, images
+and corner observations used, and a per-view breakdown. These extra fields
+are ignored when that file is later passed to
+`multical calibrate --calibration ... --fix_intrinsic`.
+
 ### Calibration targets
 
-Calibration targets supported are currently, charuco boards and aprilgrid boards (as used by Kalibr). Targets are configured by a configuration file with `--board` and examples can be found in the source tree: [example_boards](https://github.com/saulzar/multical/tree/master/example_boards). 
+Calibration targets supported are checkerboards, ChArUco boards, and AprilGrid boards (as used by Kalibr). Targets are configured by a configuration file with `--boards` and examples can be found in the source tree: [example_boards](https://github.com/saulzar/multical/tree/master/example_boards). Conventional checkerboards are best suited to a single board; use uniquely coded ChArUco or AprilGrid faces for multi-face calibration rigs.
 
 It is a good idea to check your expectation against the configuration specified using an image before calibration `multical boards --boards my_board.yaml --detect my_image.jpeg`, 
 
@@ -95,6 +105,97 @@ Visualization can be run by :
 Multical provides a convenient highlevel interface found in `multical.workspace` which contains most typical useage, from finding images, loading images, initial single camera calibration, board pose extraction, pose initialisation, and finally bundle adjustment optimization and data export.
 
 It is also the best documentation for how to use lower-level library features.
+
+## Synthetic calibration datasets
+
+The repository includes an end-to-end six-camera dataset generator for conventional checkerboards, ChArUco, and AprilGrid:
+
+```bash
+uv run python tests/generate_calibration_simulation.py \
+  --output-dir charuco_l_split \
+  --board-type charuco \
+  --board-style l \
+  --dataset-mode split \
+  --intrinsic-frames 20 \
+  --extrinsic-frames 50
+```
+
+`--dataset-mode combined` puts synchronized intrinsic-targeted and extrinsic frames in one set for joint calibration. `split` writes separate `intrinsic/` and `extrinsic/` trees. Coded targets support `plane`, `l`, and `triangle`; an ordinary checkerboard is limited to `plane` because identical uncoded faces cannot be distinguished. Each generated dataset contains `boards.yaml`, `ground_truth.json`, a ready-to-run `commands.txt`, and paged contact sheets under `overviews/`. Each overview row shows the same frame from C1 through C6, and all generated camera images are included in filename order. Contact sheets use 320x180 thumbnails and ten synchronized frames per page.
+
+After calibration, run the evaluation command included in `commands.txt`. The evaluator compares `calibration.json` with the synthetic ground truth, prints the report, and automatically writes `evaluation.json` beside `ground_truth.json`. Use `--output path/to/report.json` to choose another destination.
+
+### Stereo rectification
+
+Generate OpenCV stereo-rectification parameters and remap tables for one or more camera pairs:
+
+```bash
+uv run multical rectify --calibration calibration.json --pairs C1:C2 C3:C4 C5:C6 --image_path images --frame frame_0000.jpg
+```
+
+The default `rectification/` output contains `rectification.json`, one compressed `*_maps.npz` file per pair, and (when `--image_path` is supplied) rectified sample images plus a side-by-side epipolar-line preview. Each pair in `rectification.json` includes `E`, `F`, `R1`, `R2`, `P1`, `P2`, and `Q`; the root `quality` object carries the final calibration RMS copied from `calibration.json`. Here `E` and `F` follow the declared left-to-right transform convention. The RMS is the global multi-camera bundle-adjustment reprojection RMS, not a separately recomputed pairwise `stereoCalibrate` RMS. The default `--alpha -1` lets OpenCV choose the scale; use `--alpha 0` to crop to valid pixels or `--alpha 1` to retain the full field of view. Runtime code can load the four arrays from a map file and pass them to `cv2.remap`.
+
+### World-coordinate extrinsics
+
+Multical estimates a camera rig relative to its master camera. To anchor the whole rig to a measured world coordinate system, create a JSON or YAML control-point file:
+
+```yaml
+camera: C1
+world_units: meters
+world_points:
+  - [0.0, 0.0, 0.0]
+  - [10.97, 0.0, 0.0]
+  - [0.0, 23.77, 0.0]
+  - [10.97, 23.77, 0.0]
+  - [5.485, 0.0, 0.0]
+  - [5.485, 23.77, 0.0]
+image_points:
+  - [u0, v0]
+  - [u1, v1]
+  - [u2, v2]
+  - [u3, v3]
+  - [u4, v4]
+  - [u5, v5]
+```
+
+Each image point must correspond to the world point on the same row. Then run:
+
+```bash
+uv run multical world --calibration calibration.json --correspondences world_points.yaml
+```
+
+The resulting `world_extrinsics.json` contains `world_to_camera`, `camera_to_world`, and `position_world` for every camera, together with the PnP inlier count and reprojection error. Four pairs are the minimum; 8-20 well-spread measured control points are recommended.
+
+### World 3D reconstruction
+
+Once `world_extrinsics.json` exists, provide synchronized observations of the same target:
+
+```yaml
+sequence: tennis-ball-001
+frames:
+  - frame: frame_0000
+    timestamp: 0.000
+    observations:
+      C1: [641.2, 358.7]
+      C2: [522.8, 361.1]
+      C3:
+        point: [703.4, 349.8]
+        confidence: 0.94
+  - frame: frame_0001
+    timestamp: 0.0083
+    observations:
+      C1: [643.0, 355.2]
+      C2: [525.1, 357.6]
+```
+
+Then triangulate all frames in world coordinates:
+
+```bash
+uv run multical triangulate --calibration calibration.json --world_extrinsics world_extrinsics.json --observations ball_observations.yaml
+```
+
+The default `triangulation.json` output contains one `[X, Y, Z]` world point per successful frame, cameras used/rejected, per-camera reprojection errors, reprojection RMS, and the maximum triangulation ray angle. At least two synchronized observations are required. With three or more cameras, observations inconsistent with `--reprojection_threshold` are rejected. Frames with insufficient observations, negative depth, poor geometry, or a ray angle below `--min_ray_angle_deg` are reported as failed instead of producing an unreliable point.
+
+AprilGrid detection uses OpenCV's AprilTag 36h11 detector and does not require the Linux-only `apriltags2-ethz` package.
 
 
 ## Non-overlapping case (cameras don't overlap at all in their view)

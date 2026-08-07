@@ -36,7 +36,8 @@ setup(
     include_package_data=True,
 
     install_requires = [
-        "numpy",
+        # OpenCV <= 4.7 wheels are built against the NumPy 1.x ABI.
+        "numpy<2",
         "numba",
         "scipy",
         "matplotlib",

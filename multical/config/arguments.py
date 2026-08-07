@@ -34,10 +34,16 @@ class CameraOpts:
   distortion_model: str = choice("standard", "rational", "thin_prism", "tilted", default="standard")
   motion_model: str = choice("rolling", "static", default="static")  # Camera motion model to use
   isFisheye: bool = False # Use fisheye camera -> changes distortion models
-  intrinsic_error_limit: float = 0.5  # for iterative intrinsic calculation
+  intrinsic_error_limit: float = 0.5  # Target overall intrinsic RMS used for quality status
   
   calibration: Optional[str] = None # Initialise from previous (or single camera) calibration
   limit_intrinsic: Optional[int] = 50   # Limit intrinsic images to enable faster initialisation
+  intrinsic_min_board_coverage: float = 0.8  # Reject images whose best board detection is less complete
+  intrinsic_view_error_limit: Optional[float] = 0.8  # Absolute floor for robust per-view RMS rejection
+  intrinsic_view_mad_scale: float = 3.0  # Robust per-view threshold: median + scale * 1.4826 * MAD
+  intrinsic_filter_iterations: int = 3  # Maximum view-rejection/refit rounds
+  intrinsic_max_reject_fraction: float = 0.05  # Maximum fraction of views rejected per round
+  intrinsic_min_views: int = 15  # Never reject below this many intrinsic views
 
 @dataclass 
 class RuntimeOpts:
@@ -57,9 +63,15 @@ class OptimizerOpts:
   
   iter : int = 3 # Iterations of bundle adjustment/outlier rejection
   loss : str = choice('linear', 'soft_l1', 'huber', 'arctan', default='linear') # Loss function to use in bundle adjustment
+  initial_loss : str = choice('linear', 'soft_l1', 'huber', 'arctan', default='soft_l1') # Robust loss for the first adjustment round
 
   outlier_quantile : float = 0.75 # Quantile for outlier rejection (multiplied by threshold factor)
   outlier_threshold : float = 5.0 # Threshold for outliers (factor of quartile of reprojection error)
+  outlier_min_threshold : Optional[float] = 1.0 # Minimum per-corner outlier threshold in pixels
+  outlier_max_threshold : Optional[float] = None # Optional maximum per-corner threshold; disabled by default to protect initial connectivity
+  frame_outlier_ratio : Optional[float] = 0.8 # Reject a camera frame when this fraction of its corners are outliers
+  frame_outlier_min_points : int = 8 # Minimum observations required for frame-level rejection
+  final_recheck_iterations : int = 2 # Reclassify and refit after the normal adjustment rounds
   auto_scale : Optional[float] = None # Threshold for auto_scale to reduce outlier influence (factor of upper quartile of reprojection error) - requires non-linear loss
 
   fix_intrinsic: bool = False  # Constant camera intrinsic parameters
@@ -76,4 +88,3 @@ def run_with(command_type):
 
     program = parser.parse_args()
     return program.app.execute()
-

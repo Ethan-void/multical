@@ -91,7 +91,7 @@ def add_marker(scene, corner, id, options, pen, color, font):
 
 def add_point_markers(scene, points, board, color, options):
   marker_font = QFont()
-  marker_font.setPixelSize(options.marker_size * 0.75)
+  marker_font.setPixelSize(max(1, int(round(options.marker_size * 0.75))))
 
   pen = cosmetic_pen(color, options.line_width)
   corners = points.points[points.valid]
@@ -101,7 +101,7 @@ def add_point_markers(scene, points, board, color, options):
 
 def add_reprojections(scene, points, projected, inliers, boards, valid_boards, options):
   marker_font = QFont()
-  marker_font.setPixelSize(int(options.marker_size * 0.75))
+  marker_font.setPixelSize(max(1, int(round(options.marker_size * 0.75))))
 
   frame_table = points._extend(proj=projected.points, inlier=inliers)
 
@@ -157,7 +157,7 @@ def annotate_image(workspace, calibration, layer, state, options):
       if pose.valid:
         projected = Table.create(
           points = camera.project(board.points, pose.poses),
-          valid = np.ones(board.points.shape[0], dtype=np.bool)
+          valid = np.ones(board.points.shape[0], dtype=np.bool_)
         )
         add_point_markers(scene, projected, board, color, options)
 

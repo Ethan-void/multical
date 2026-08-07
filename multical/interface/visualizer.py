@@ -81,13 +81,31 @@ class Visualizer(QtWidgets.QMainWindow):
     self.ready = False
 
 
-    action = QtWidgets.QAction(qta.icon('fa.folder-open'), "new", self)
+    def toolbar_icon(name, fallback):
+      try:
+        return qta.icon(name)
+      except Exception:
+        return self.style().standardIcon(fallback)
+
+    action = QtWidgets.QAction(
+      toolbar_icon('fa5s.folder-open', QtWidgets.QStyle.SP_DirOpenIcon),
+      "new",
+      self
+    )
     self.toolBar.addAction(action)
 
-    action = QtWidgets.QAction(qta.icon('fa.save'), "Save", self)
+    action = QtWidgets.QAction(
+      toolbar_icon('fa5s.save', QtWidgets.QStyle.SP_DialogSaveButton),
+      "Save",
+      self
+    )
     self.toolBar.addAction(action)
 
-    action = QtWidgets.QAction(qta.icon('fa.cogs'), "Optimize", self)
+    action = QtWidgets.QAction(
+      toolbar_icon('fa5s.cogs', QtWidgets.QStyle.SP_BrowserReload),
+      "Optimize",
+      self
+    )
     self.toolBar.addAction(action)
 
     self.toolBar.addSeparator()

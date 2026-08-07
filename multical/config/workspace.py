@@ -32,6 +32,13 @@ def initialise_with_images(ws : Workspace, boards, camera_images,
           fix_aspect=camera_opts.fix_aspect,
           has_skew=camera_opts.allow_skew, 
           max_images=camera_opts.limit_intrinsic,
+          min_board_coverage=camera_opts.intrinsic_min_board_coverage,
+          view_error_limit=camera_opts.intrinsic_view_error_limit,
+          view_mad_scale=camera_opts.intrinsic_view_mad_scale,
+          filter_iterations=camera_opts.intrinsic_filter_iterations,
+          max_reject_fraction=camera_opts.intrinsic_max_reject_fraction,
+          min_views=camera_opts.intrinsic_min_views,
+          selection_seed=runtime.seed,
           isFisheye=camera_opts.isFisheye)
 
     ws.initialise_poses(
@@ -52,7 +59,15 @@ def optimize(ws : Workspace, opt : OptimizerOpts = OptimizerOpts()):
     camera_poses=not opt.fix_camera_poses,
     board_poses=not opt.fix_board_poses,
     motion=not opt.fix_motion,
+    num_adjustments=opt.iter,
+    initial_loss=opt.initial_loss,
     auto_scale=opt.auto_scale, 
-    outlier_threshold=opt.outlier_threshold, quantile=opt.outlier_quantile)
+    outlier_threshold=opt.outlier_threshold,
+    outlier_min_threshold=opt.outlier_min_threshold,
+    outlier_max_threshold=opt.outlier_max_threshold,
+    frame_outlier_ratio=opt.frame_outlier_ratio,
+    frame_outlier_min_points=opt.frame_outlier_min_points,
+    final_recheck_iterations=opt.final_recheck_iterations,
+    quantile=opt.outlier_quantile)
 
   return ws

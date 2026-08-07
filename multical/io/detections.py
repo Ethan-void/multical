@@ -1,7 +1,6 @@
 
 import pickle
 from multical.io.logging import info
-import os
 from structs.struct import struct
 
 def try_load_detections(filename, cache_key={}):
@@ -15,19 +14,38 @@ def try_load_detections(filename, cache_key={}):
         return loaded.detected_points
       else:
         info(f"Config changed, not using loaded detections in {filename}")
-  except (OSError, IOError, EOFError, AttributeError) as e:
+  except (
+      OSError, IOError, EOFError, AttributeError, KeyError, TypeError,
+      ValueError, pickle.UnpicklingError
+  ):
+    info(f"Detection cache {filename} is invalid; rebuilding it")
     return None
 
 def check_dataset_similarity(loaded, cache_key):
   '''
   Checks whether the loaded datasets file format is similar to cached dataset
   '''
-  filenames = loaded.cache_key['filenames']
-  caches = cache_key['filenames']
+  try:
+    loaded_key = loaded.cache_key
+    filenames = loaded_key['filenames']
+    caches = cache_key['filenames']
+  except (AttributeError, KeyError, TypeError):
+    return False
 
-  assert len(filenames) == len(caches)
+  # A cache can only be reused after moving a dataset when all detection
+  # metadata except the path prefix still matches.
+  for key in ('boards', 'image_sizes'):
+    try:
+      if repr(loaded_key[key]) != repr(cache_key[key]):
+        return False
+    except (KeyError, TypeError):
+      return False
+
+  if len(filenames) != len(caches):
+    return False
   for i in range(len(filenames)):
-    assert len(filenames[i]) == len(caches[i])
+    if len(filenames[i]) != len(caches[i]):
+      return False
     for j in range(len(filenames[i])):
       file_dirs = find_char(filenames[i][j])
       cache_dirs = find_char(caches[i][j])

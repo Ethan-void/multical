@@ -1,5 +1,3 @@
-from copy import copy
-
 from multical.io.logging import error
 from multical.board.board import Board
 from structs.numpy import Table
@@ -77,9 +75,24 @@ class AprilGrid(Parameters, Board):
 
   @property
   def points(self):
-    tag_ids = range(self.size[0] * self.size[1])
-    corners = [self.grid.get_tag_corners_for_id(id) for id in tag_ids]
-    points_2d = np.array(corners).reshape(-1, 2)
+    width, height = self.size
+    step = self.tag_length * (1.0 + self.tag_spacing)
+    corners = []
+    for row in range(height):
+      for column in range(width):
+        left = column * step
+        top = row * step
+        right = left + self.tag_length
+        bottom = top + self.tag_length
+        # OpenCV marker corner order: top-left, top-right,
+        # bottom-right, bottom-left.
+        corners.extend([
+          [left, top],
+          [right, top],
+          [right, bottom],
+          [left, bottom]
+        ])
+    points_2d = np.asarray(corners, dtype=np.float32)
     return np.concatenate([points_2d, np.zeros([points_2d.shape[0], 1])], axis=1)
       
   @property
@@ -124,24 +137,11 @@ class AprilGrid(Parameters, Board):
       y_coord = int(y_index * square_length + spacing_length * (y_index + 1) + margin)
       return x_coord, y_coord
 
-    def marker_x_index_flip(marker):
-      for y_index in range(self.size[1]):
-        for x_index in range(self.size[0] // 2):
-          x_index_to_change = self.size[0] - 1 - x_index
-          x_coord, y_coord = index2coord(x_index, y_index)
-          x_coord_to_change, _ = index2coord(x_index_to_change, y_index)
-          marker1 = copy(markers[y_coord:y_coord + int(square_length), x_coord_to_change:x_coord_to_change + int(square_length)])
-          marker2 = copy(markers[y_coord:y_coord + int(square_length), x_coord:x_coord + int(square_length)])
-          markers[y_coord:y_coord + int(square_length), x_coord:x_coord + int(square_length)] = marker1
-          markers[y_coord:y_coord + int(square_length), x_coord_to_change:x_coord_to_change + int(square_length)] = marker2
-      return marker
-
     dims = [int(square_length * n + spacing_length * (n + 1) + margin * 2) 
       for n in self.size]
 
     markers = self.board.draw(tuple(dims), marginSize=int(margin + spacing_length), 
       borderBits=int(self.border_bits))
-    markers = marker_x_index_flip(markers)
 
     step = square_length + spacing_length
     for i in range(self.size[0] + 1):
@@ -183,15 +183,37 @@ class AprilGrid(Parameters, Board):
 
 
   def detect(self, image):    
-    detections = self.grid.compute_observation(image)
-
-    if not detections.success:
+    detector_params = cv2.aruco.DetectorParameters_create()
+    detector_params.markerBorderBits = self.border_bits
+    corners, marker_ids, _ = cv2.aruco.detectMarkers(
+      image,
+      cv2.aruco.getPredefinedDictionary(self.aruco_dicts[self.tag_family]),
+      parameters=detector_params
+    )
+    if marker_ids is None:
       return empty_detection
 
-    corner_detections = [struct(ids = id * 4 + k % 4, corners=corner)
-      for k, id, corner in zip(range(len(detections.ids)), detections.ids, detections.image_points)]
+    detections = []
+    first_id = self.start_id
+    last_id = first_id + self.size[0] * self.size[1]
+    for marker_corners, marker_id in zip(corners, marker_ids.reshape(-1)):
+      if first_id <= marker_id < last_id:
+        local_id = int(marker_id - first_id)
+        for corner_index, corner in enumerate(marker_corners.reshape(4, 2)):
+          detections.append(struct(
+            ids=local_id * 4 + corner_index,
+            corners=corner
+          ))
 
-    refined = subpix_corners(image, Table.stack(corner_detections), self.subpix_region)
+    if not detections:
+      return empty_detection
+
+    detections.sort(key=lambda detection: detection.ids)
+    refined = subpix_corners(
+      image,
+      Table.stack(detections),
+      self.subpix_region
+    )
     return refined
 
   def has_min_detections(self, detections):

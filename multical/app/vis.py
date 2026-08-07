@@ -39,12 +39,25 @@ def visualize_ws(ws):
 def visualize(args): 
     np.set_printoptions(precision=4, suppress=True)
 
-    filename = args.workspace_file
+    filename = path.abspath(args.workspace_file)
     if path.isdir(filename):
       filename = path.join(filename, "calibration.pkl")
       
     ws = Workspace.load(filename)
     setup_logging('INFO', [ws.log_handler])
+    if not path.isabs(ws.image_path):
+      workspace_dir = path.dirname(filename)
+      first_filename = ws.filenames[0][0]
+      candidates = [
+        workspace_dir,
+        path.abspath(ws.image_path),
+        path.join(workspace_dir, ws.image_path),
+        path.join(path.dirname(workspace_dir), ws.image_path)
+      ]
+      for candidate in candidates:
+        if path.isfile(path.join(candidate, first_filename)):
+          ws.image_path = path.abspath(candidate)
+          break
     ws._load_images()
 
     visualize_ws(ws)

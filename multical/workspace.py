@@ -162,7 +162,13 @@ class Workspace:
           info(f"{name} {camera}")
           info("")
 
-    def calibrate_single(self, camera_model, intrinsic_error_limit, fix_aspect=False, has_skew=False, max_images=None, isFisheye=False):
+    def calibrate_single(
+        self, camera_model, intrinsic_error_limit, fix_aspect=False,
+        has_skew=False, max_images=None, min_board_coverage=0.8,
+        view_error_limit=0.8,
+        view_mad_scale=3.0, filter_iterations=3,
+        max_reject_fraction=0.05, min_views=15, selection_seed=0,
+        isFisheye=False):
         assert self.detected_points is not None, "calibrate_single: no points found, first use detect_boards to find corner points"
 
         check_detections(self.names.camera, self.boards, self.detected_points)
@@ -177,7 +183,14 @@ class Workspace:
                 model=camera_model,
                 fix_aspect=fix_aspect,
                 has_skew=has_skew,
-                max_images=max_images)
+                max_images=max_images,
+                min_board_coverage=min_board_coverage,
+                view_error_limit=view_error_limit,
+                view_mad_scale=view_mad_scale,
+                filter_iterations=filter_iterations,
+                max_reject_fraction=max_reject_fraction,
+                min_views=min_views,
+                selection_seed=selection_seed)
         else:
             self.cameras, errs = calibrate_cameras_fisheye(
                 self.boards,
@@ -229,7 +242,11 @@ class Workspace:
         camera_poses=True, motion=True, board_poses=True, 
         cameras=False, boards=False,
         loss='linear', tolerance=1e-4, num_adjustments=3,
-        quantile=0.75, auto_scale=None, outlier_threshold=5.0)  -> Calibration:
+        quantile=0.75, auto_scale=None, outlier_threshold=5.0,
+        outlier_min_threshold=1.0, outlier_max_threshold=None,
+        initial_loss='soft_l1', frame_outlier_ratio=0.8,
+        frame_outlier_min_points=8,
+        final_recheck_iterations=2)  -> Calibration:
 
         calib : Calibration = self.latest_calibration.enable(
             cameras=cameras, boards=boards, camera_poses=camera_poses,
@@ -239,7 +256,15 @@ class Workspace:
           loss=loss, 
           tolerance=tolerance,
           num_adjustments=num_adjustments,
-          select_outliers = select_threshold(quantile=quantile, factor=outlier_threshold),
+          initial_loss=initial_loss,
+          frame_outlier_ratio=frame_outlier_ratio,
+          frame_outlier_min_points=frame_outlier_min_points,
+          final_recheck_iterations=final_recheck_iterations,
+          select_outliers = select_threshold(
+            quantile=quantile,
+            factor=outlier_threshold,
+            minimum=outlier_min_threshold,
+            maximum=outlier_max_threshold),
           select_scale = select_threshold(quantile=quantile, factor=auto_scale) if auto_scale is not None else None
         )
 
@@ -290,7 +315,13 @@ class Workspace:
         if master is not None:
             calib = calib.with_master(master)
 
-        return export_json(calib, self.names, self.filenames, master=master)
+        return export_json(
+            calib,
+            self.names,
+            self.filenames,
+            master=master,
+            pose_table=self.pose_table
+        )
 
 
     def export(self, filename=None, master=None):

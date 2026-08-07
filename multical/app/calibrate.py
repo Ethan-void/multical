@@ -1,5 +1,7 @@
 
 from multical.io.logging import setup_logging
+from multical.io.logging import info
+from multical.io.distortion_check import export_distortion_checks
 from .vis import visualize_ws
 
 from structs.struct import struct, map_none, to_structs
@@ -25,7 +27,7 @@ def calibrate(args):
   np.set_printoptions(precision=4, suppress=True)
 
   # Use image path if not explicity specified
-  output_path = args.paths.image_path or args.paths.output_path 
+  output_path = args.paths.output_path or args.paths.image_path
 
   ws = workspace.Workspace(output_path, args.paths.name)
   setup_logging(args.runtime.log_level, [ws.log_handler], log_file=path.join(output_path, f"{args.paths.name}.txt"))
@@ -39,6 +41,17 @@ def calibrate(args):
 
   ws.export()
   ws.dump()
+  _, distortion_directory = export_distortion_checks(
+    ws.output_path,
+    ws.names.camera,
+    ws.latest_calibration.cameras,
+    ws.images,
+    ws.filenames,
+    stage="calibration"
+  )
+  info("Wrote distortion validation images to {}".format(
+    distortion_directory
+  ))
 
   if args.vis:
     visualize_ws(ws)

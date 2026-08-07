@@ -1,0 +1,69 @@
+{
+  "coordinate_frame": "world",
+  "world_units": "meters",
+  "sources": {
+    "reconstruction": "/data/triangulation.json",
+    "ground_truth": "/data/measured_points.yaml",
+    "ground_truth_input_units": "meters",
+    "ground_truth_scale_to_output_units": 1.0
+  },
+  "summary": {
+    "ground_truth_count": 4,
+    "matched_count": 2,
+    "failed_reconstruction_count": 1,
+    "missing_reconstruction_count": 1,
+    "unmeasured_reconstruction_count": 1,
+    "error_3d": {
+      "mean": 0.015,
+      "RMS": 0.021213203435596427,
+      "median": 0.015,
+      "p95": 0.0285,
+      "max": 0.03
+    },
+    "axis_error": {
+      "X": {"bias": 0.005, "MAE": 0.005, "RMS": 0.007071067811865475, "max_abs": 0.01},
+      "Y": {"bias": -0.01, "MAE": 0.01, "RMS": 0.01414213562373095, "max_abs": 0.02},
+      "Z": {"bias": 0.01, "MAE": 0.01, "RMS": 0.01414213562373095, "max_abs": 0.02}
+    }
+  },
+  "acceptance": {
+    "threshold_units": "meters",
+    "thresholds": {
+      "max_mean_error": 0.03,
+      "max_p95_error": 0.05,
+      "max_error": 0.08
+    },
+    "passed": false,
+    "failures": [
+      "1 measured points have no reconstruction",
+      "1 measured points failed reconstruction"
+    ]
+  },
+  "points": [
+    {
+      "frame": "P01",
+      "measured_world": [1.0, 2.0, 3.0],
+      "reconstructed_world": [1.01, 1.98, 3.02],
+      "error_xyz": [0.01, -0.02, 0.02],
+      "abs_error_xyz": [0.01, 0.02, 0.02],
+      "error_3d": 0.03,
+      "cameras_used": ["C1", "C2"],
+      "reprojection_rms_px": 0.4
+    },
+    {
+      "frame": "P02",
+      "measured_world": [2.0, 1.0, 0.5],
+      "reconstructed_world": [2.0, 1.0, 0.5],
+      "error_xyz": [0.0, 0.0, 0.0],
+      "abs_error_xyz": [0.0, 0.0, 0.0],
+      "error_3d": 0.0,
+      "cameras_used": ["C2", "C3"],
+      "reprojection_rms_px": 0.3
+    }
+  ],
+  "failed_reconstructions": [
+    {"frame": "P03", "reason": "poor ray angle"}
+  ],
+  "missing_reconstructions": ["P04"],
+  "unmeasured_reconstructions": ["not-measured"]
+}

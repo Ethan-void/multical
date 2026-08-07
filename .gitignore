@@ -141,3 +141,14 @@ cython_debug/
 # IDE settings
 .vscode
 .idea
+scripts/node_modules
+
+
+.DS_Store
+__pycache__/
+*.py[cod]
+
+# 本地数据
+20260804/
+20260804.zip
+charuco_l_split/

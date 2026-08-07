@@ -29,14 +29,22 @@ def find_board_config(image_path, board_file = None):
 def sample_inds(xs, inds):
   return np.array(xs)[inds].tolist()
 
+
 def find_camera_images(image_path, cameras=None, 
-    camera_pattern=None, matching=True, extensions=image.find.image_extensions, limit=None):   
+    camera_pattern=None, matching=True, extensions=image.find.image_extensions,
+    limit=None):
+  image_path = path.abspath(image_path)
   camera_paths = image.find.find_cameras(image_path, cameras, camera_pattern, extensions=extensions)
   camera_names = list(camera_paths.keys())
 
   find_images = image.find.find_images_matching if matching else image.find.find_images_unmatched
 
   image_names, filenames = find_images(camera_paths, extensions=extensions)
+  # ``filenames`` are discovered with ``image_path`` already prepended, while
+  # Workspace later passes ``image_path`` as the loading prefix. Keep filenames
+  # relative to that prefix to avoid paths such as data/data/C1/frame.jpg.
+  filenames = [[path.relpath(filename, image_path) for filename in camera_files]
+    for camera_files in filenames]
   info("Found camera directories {} with {} matching images".format(camera_names, len(image_names)))
 
   if limit is not None and len(image_names) > limit:
@@ -49,7 +57,3 @@ def find_camera_images(image_path, cameras=None,
 
 
   return struct(image_path=image_path, cameras=camera_names, image_names=image_names, filenames=filenames)
-
-
-
-

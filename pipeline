@@ -1,0 +1,77 @@
+#!/bin/sh
+set -eu
+
+REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+CONFIG=${MULTICAL_PIPELINE_CONFIG:-configs/pipeline.20260804.yaml}
+
+if [ "${1:-}" = "-c" ] || [ "${1:-}" = "--config" ]; then
+  if [ "$#" -lt 2 ]; then
+    echo "usage: ./pipeline --config CONFIG [all|validation CAMERA|list|dry-run]" >&2
+    exit 2
+  fi
+  CONFIG=$2
+  shift 2
+fi
+
+cd "$REPO_DIR"
+
+case "${1:-all}" in
+  all)
+    shift 2>/dev/null || true
+    exec uv run python scripts/run_pipeline.py \
+      --config "$CONFIG" --stage all --resume "$@"
+    ;;
+  validation|validate)
+    if [ "$#" -lt 2 ]; then
+      echo "usage: ./pipeline validation CAMERA" >&2
+      exit 2
+    fi
+    CAMERA=$2
+    shift 2
+    exec uv run python scripts/run_pipeline.py \
+      --config "$CONFIG" --stage validation --camera "$CAMERA" --resume "$@"
+    ;;
+  analyze|analysis)
+    if [ "$#" -lt 2 ]; then
+      echo "usage: ./pipeline analyze intrinsic|extrinsic|all" >&2
+      exit 2
+    fi
+    TARGET=$2
+    shift 2
+    case "$TARGET" in
+      intrinsic) STAGE=analyze_intrinsic ;;
+      extrinsic) STAGE=analyze_extrinsic ;;
+      all|combined) STAGE=analysis ;;
+      *)
+        echo "usage: ./pipeline analyze intrinsic|extrinsic|all" >&2
+        exit 2
+        ;;
+    esac
+    exec uv run python scripts/run_pipeline.py \
+      --config "$CONFIG" --stage "$STAGE" --resume "$@"
+    ;;
+  list)
+    shift
+    exec uv run python scripts/run_pipeline.py \
+      --config "$CONFIG" --list-stages "$@"
+    ;;
+  dry-run|check)
+    shift
+    exec uv run python scripts/run_pipeline.py \
+      --config "$CONFIG" --dry-run "$@"
+    ;;
+  stage)
+    if [ "$#" -lt 2 ]; then
+      echo "usage: ./pipeline stage STAGE [pipeline options]" >&2
+      exit 2
+    fi
+    STAGE=$2
+    shift 2
+    exec uv run python scripts/run_pipeline.py \
+      --config "$CONFIG" --stage "$STAGE" --resume "$@"
+    ;;
+  *)
+    # Advanced mode: pass normal run_pipeline.py options directly.
+    exec uv run python scripts/run_pipeline.py --config "$CONFIG" "$@"
+    ;;
+esac
