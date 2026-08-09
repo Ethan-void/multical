@@ -19,13 +19,13 @@ import yaml
 
 MULTICAL_COMMANDS = {
   "boards", "intrinsic", "calibrate", "world", "worldmulti", "observe",
-  "triangulate", "evaluate3d", "rectify", "vis"
+  "worldgroups", "triangulate", "evaluate3d", "rectify", "vis"
 }
 INPUT_ARGUMENTS = {
   "image_path", "boards", "calibration", "correspondences",
   "world_extrinsics", "observations", "reconstruction", "ground_truth",
   "workspace", "workspace_file", "intrinsic", "extrinsic",
-  "intrinsic_detections"
+  "intrinsic_detections", "calibrations", "evaluation"
 }
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".ppm", ".bmp"}
 
@@ -228,6 +228,8 @@ def command_for(stage: Mapping[str, Any]) -> List[str]:
     prefix = [sys.executable, "-m", "multical.app.multical", command]
   elif command == "analyze":
     prefix = [sys.executable, "scripts/analyze_calibration.py"]
+  elif command == "analyze_worldgroups":
+    prefix = [sys.executable, "scripts/analyze_worldgroups.py"]
   elif command == "python":
     script = stage.get("script")
     if not script:
@@ -263,6 +265,11 @@ def output_paths(stage: Mapping[str, Any]) -> List[Path]:
       return [Path(args["output"])]
     suffix = "world_extrinsics_multicam.json" if command == "worldmulti" else "world_extrinsics.json"
     return [Path(args["calibration"]).parent / suffix]
+  if command == "worldgroups":
+    outputs = [Path(args["output"])]
+    if args.get("calibration_output"):
+      outputs.append(Path(args["calibration_output"]))
+    return outputs
   if command == "observe":
     return [Path(args["output"])]
   if command == "triangulate":
@@ -275,6 +282,9 @@ def output_paths(stage: Mapping[str, Any]) -> List[Path]:
     return [destination, destination.with_suffix(".xlsx")]
   if command == "analyze":
     return [Path(args["output"])]
+  if command == "analyze_worldgroups":
+    destination = Path(args["output"])
+    return [destination, destination.with_suffix(".xlsx")]
   return []
 
 

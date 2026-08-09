@@ -14,6 +14,7 @@ from multical.app.triangulate import Triangulate
 from multical.app.vis import Vis
 from multical.app.world import World
 from multical.app.worldmulti import Worldmulti
+from multical.app.worldgroups import Worldgroups
 
 
 @dataclass
@@ -29,10 +30,11 @@ class Multical:
   - triangulate: reconstruct synchronized pixels in world coordinates
   - world: anchor relative camera poses to measured world coordinates
   - worldmulti: jointly anchor a fixed rig using multiple cameras
+  - worldgroups: merge independently world-anchored local camera groups
   """ 
   command : Union[
-    Calibrate, Intrinsic, Boards, Vis, Rectify, World, Worldmulti, Observe,
-    Triangulate, Evaluate3d
+    Calibrate, Intrinsic, Boards, Vis, Rectify, World, Worldmulti, Worldgroups,
+    Observe, Triangulate, Evaluate3d
   ]
    
   def execute(self):

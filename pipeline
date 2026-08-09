@@ -2,7 +2,7 @@
 set -eu
 
 REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-CONFIG=${MULTICAL_PIPELINE_CONFIG:-configs/pipeline.20260804.yaml}
+CONFIG=${MULTICAL_PIPELINE_CONFIG:-configs/pipeline.worldgroups.20260804.yaml}
 
 if [ "${1:-}" = "-c" ] || [ "${1:-}" = "--config" ]; then
   if [ "$#" -lt 2 ]; then
@@ -33,17 +33,18 @@ case "${1:-all}" in
     ;;
   analyze|analysis)
     if [ "$#" -lt 2 ]; then
-      echo "usage: ./pipeline analyze intrinsic|extrinsic|all" >&2
+      echo "usage: ./pipeline analyze intrinsic|extrinsic|worldgroups|all" >&2
       exit 2
     fi
     TARGET=$2
     shift 2
     case "$TARGET" in
-      intrinsic) STAGE=analyze_intrinsic ;;
-      extrinsic) STAGE=analyze_extrinsic ;;
-      all|combined) STAGE=analysis ;;
+      intrinsic) STAGE=intrinsic_analysis ;;
+      extrinsic) STAGE=extrinsic_analysis ;;
+      worldgroups|groups) STAGE=analyze_worldgroups ;;
+      all|combined) STAGE=intrinsic_analysis,extrinsic_analysis,report ;;
       *)
-        echo "usage: ./pipeline analyze intrinsic|extrinsic|all" >&2
+        echo "usage: ./pipeline analyze intrinsic|extrinsic|worldgroups|all" >&2
         exit 2
         ;;
     esac

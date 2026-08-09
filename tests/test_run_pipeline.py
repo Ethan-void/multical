@@ -138,3 +138,55 @@ def test_non_image_outputs_do_not_change_image_fingerprint(tmp_path):
   (tmp_path / "intrinsic.json").write_text("{}", encoding="utf-8")
   after = pipeline.fingerprint(stage, ["multical", "intrinsic"])
   assert before == after
+
+
+def test_worldgroups_command_tracks_all_inputs_and_outputs(tmp_path):
+  intrinsic = tmp_path / "intrinsic.json"
+  calibration01 = tmp_path / "calibration01.json"
+  calibration23 = tmp_path / "calibration23.json"
+  world01 = tmp_path / "world01.json"
+  world23 = tmp_path / "world23.json"
+  for path in (
+      intrinsic, calibration01, calibration23, world01, world23):
+    path.write_text("{}", encoding="utf-8")
+  output = tmp_path / "world.json"
+  combined = tmp_path / "calibration.json"
+  stage = {
+    "name": "worldgroups",
+    "command": "worldgroups",
+    "args": {
+      "intrinsic": str(intrinsic),
+      "calibrations": [str(calibration01), str(calibration23)],
+      "world_extrinsics": [str(world01), str(world23)],
+      "output": str(output),
+      "calibration_output": str(combined)
+    }
+  }
+
+  assert pipeline.missing_inputs(stage) == []
+  assert pipeline.output_paths(stage) == [output, combined]
+  command = pipeline.command_for(stage)
+  assert command[3] == "worldgroups"
+  assert "--calibrations" in command
+
+
+def test_analyze_worldgroups_tracks_json_and_xlsx_outputs(tmp_path):
+  world = tmp_path / "world.json"
+  evaluation = tmp_path / "evaluation.json"
+  world.write_text("{}", encoding="utf-8")
+  evaluation.write_text("{}", encoding="utf-8")
+  output = tmp_path / "worldgroups_analysis.json"
+  stage = {
+    "name": "analyze_worldgroups",
+    "command": "analyze_worldgroups",
+    "args": {
+      "world_extrinsics": str(world),
+      "evaluation": str(evaluation),
+      "output": str(output)
+    }
+  }
+
+  assert pipeline.missing_inputs(stage) == []
+  assert pipeline.output_paths(stage) == [output, output.with_suffix(".xlsx")]
+  command = pipeline.command_for(stage)
+  assert command[1].endswith("scripts/analyze_worldgroups.py")
