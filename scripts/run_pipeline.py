@@ -19,13 +19,15 @@ import yaml
 
 MULTICAL_COMMANDS = {
   "boards", "intrinsic", "calibrate", "world", "worldmulti", "observe",
-  "worldgroups", "triangulate", "evaluate3d", "rectify", "vis"
+  "worldgroups", "worldgroupba", "triangulate", "evaluate3d", "rectify",
+  "vis"
 }
 INPUT_ARGUMENTS = {
   "image_path", "boards", "calibration", "correspondences",
   "world_extrinsics", "observations", "reconstruction", "ground_truth",
   "workspace", "workspace_file", "intrinsic", "extrinsic",
-  "intrinsic_detections", "calibrations", "evaluation"
+  "intrinsic_detections", "calibrations", "evaluation", "workspaces",
+  "initial_world_extrinsics"
 }
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".ppm", ".bmp"}
 
@@ -265,7 +267,7 @@ def output_paths(stage: Mapping[str, Any]) -> List[Path]:
       return [Path(args["output"])]
     suffix = "world_extrinsics_multicam.json" if command == "worldmulti" else "world_extrinsics.json"
     return [Path(args["calibration"]).parent / suffix]
-  if command == "worldgroups":
+  if command in ("worldgroups", "worldgroupba"):
     outputs = [Path(args["output"])]
     if args.get("calibration_output"):
       outputs.append(Path(args["calibration_output"]))

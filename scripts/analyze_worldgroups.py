@@ -200,8 +200,9 @@ def analyze_worldgroups(
   source, data = _load_json(
     world_extrinsics_file, "grouped world extrinsics"
   )
-  if data.get("method") != "grouped_world_anchor":
-    raise ValueError("world extrinsics are not a grouped_world_anchor result")
+  if data.get("method") not in {
+      "grouped_world_anchor", "grouped_constrained_bundle_adjustment"}:
+    raise ValueError("world extrinsics are not a grouped world result")
   groups = data.get("groups")
   cameras = data.get("cameras")
   if not isinstance(groups, list) or len(groups) < 2:

@@ -306,6 +306,7 @@ class Calibration(parameters.Parameters):
   def adjust_outliers(
       self, num_adjustments=3, select_scale=None,
       select_outliers=None, initial_loss=None,
+      warmup_before_outlier_rejection=False,
       frame_outlier_ratio=None, frame_outlier_min_points=8,
       final_recheck_iterations=0, **kwargs):
     info(f"Beginning adjustments ({num_adjustments}) enabled: {self.optimize}, options: {kwargs}")
@@ -325,6 +326,17 @@ class Calibration(parameters.Parameters):
         )
       return calibration
 
+    if warmup_before_outlier_rejection:
+      self.report("Warmup before outlier rejection:")
+      f_scale = apply_none(select_scale, self.reprojection_error) or 1.0
+      if select_scale is not None:
+        info(f"Auto scaling for warmup influence at {f_scale:.2f} pixels")
+      self = self.bundle_adjust(
+        f_scale=f_scale,
+        loss=initial_loss or normal_loss,
+        **bundle_kwargs
+      )
+
     for i in range(num_adjustments):
       self.report(f"Adjust_outliers {i}:")
       f_scale = apply_none(select_scale, self.reprojection_error) or 1.0
@@ -333,7 +345,10 @@ class Calibration(parameters.Parameters):
       self = classify_outliers(self)
       round_loss = (
         initial_loss
-        if i == 0 and initial_loss is not None else normal_loss
+        if (
+          not warmup_before_outlier_rejection and
+          i == 0 and initial_loss is not None
+        ) else normal_loss
       )
       self = self.bundle_adjust(
         f_scale=f_scale,
@@ -408,5 +423,3 @@ def error_stats(errors):
   mse = np.square(errors).mean()
   quantiles = np.array([np.quantile(errors, n) for n in [0, 0.25, 0.5, 0.75, 1]])
   return struct(mse = mse, rms = np.sqrt(mse), quantiles=quantiles, n = errors.size)
-
-

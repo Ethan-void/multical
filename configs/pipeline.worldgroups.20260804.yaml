@@ -34,6 +34,7 @@ stages:
       fix_intrinsic: true
       master: cam0
       loss: soft_l1
+      warmup_before_outlier_rejection: true
       iter: 3
       output_path: "{output_root}/extrinsic_01"
       name: calibration
@@ -50,6 +51,7 @@ stages:
       fix_intrinsic: true
       master: cam2
       loss: soft_l1
+      warmup_before_outlier_rejection: true
       iter: 3
       output_path: "{output_root}/extrinsic_23"
       name: calibration
@@ -90,6 +92,36 @@ stages:
         - "{output_root}/world/group23.json"
       group_names: [group01, group23]
       master: cam0
+      output: "{output_root}/world/world_extrinsic.initial.json"
+      calibration_output: "{output_root}/extrinsic/calibration.initial.json"
+
+  worldgroupba:
+    command: worldgroupba
+    group: reconstruction
+    needs: [worldgroups]
+    args:
+      intrinsic: "{output_root}/intrinsic/intrinsic.json"
+      initial_world_extrinsics: "{output_root}/world/world_extrinsic.initial.json"
+      calibrations:
+        - "{output_root}/extrinsic_01/calibration.json"
+        - "{output_root}/extrinsic_23/calibration.json"
+      workspaces:
+        - "{output_root}/extrinsic_01/calibration.pkl"
+        - "{output_root}/extrinsic_23/calibration.pkl"
+      correspondences:
+        - "{dataset}/world/world_markers_01.yaml"
+        - "{dataset}/world/world_markers_23.yaml"
+      group_names: [group01, group23]
+      master: cam0
+      ransac_threshold: 3.0
+      loss: soft_l1
+      relative_rotation_sigma_deg: 0.1
+      relative_translation_sigma: 0.02
+      relative_prior_weight: 5.0
+      # 与 group_names 对齐：group01需要更多世界控制网修正，group23保守保持局部双目。
+      relative_prior_weights: [2.0, 5.0]
+      # 世界控制点全部以 soft_l1 参与；这里只把3 px作为质量诊断阈值。
+      final_recheck_iterations: 0
       output: "{output_root}/world/world_extrinsic.json"
       calibration_output: "{output_root}/extrinsic/calibration.json"
 
@@ -110,7 +142,7 @@ stages:
   triangulate:
     command: triangulate
     group: reconstruction
-    needs: [worldgroups]
+    needs: [worldgroupba]
     args:
       calibration: "{output_root}/intrinsic/intrinsic.json"
       world_extrinsics: "{output_root}/world/world_extrinsic.json"
@@ -166,7 +198,7 @@ stages:
   analyze_worldgroups:
     command: analyze_worldgroups
     group: report
-    needs: [worldgroups, evaluate3d]
+    needs: [worldgroupba, evaluate3d]
     args:
       world_extrinsics: "{output_root}/world/world_extrinsic.json"
       evaluation: "{output_root}/reports/evaluation3d.json"

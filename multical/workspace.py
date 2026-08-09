@@ -246,6 +246,7 @@ class Workspace:
         outlier_min_threshold=1.0, outlier_max_threshold=None,
         initial_loss='soft_l1', frame_outlier_ratio=0.8,
         frame_outlier_min_points=8,
+        warmup_before_outlier_rejection=False,
         final_recheck_iterations=2)  -> Calibration:
 
         calib : Calibration = self.latest_calibration.enable(
@@ -257,6 +258,7 @@ class Workspace:
           tolerance=tolerance,
           num_adjustments=num_adjustments,
           initial_loss=initial_loss,
+          warmup_before_outlier_rejection=warmup_before_outlier_rejection,
           frame_outlier_ratio=frame_outlier_ratio,
           frame_outlier_min_points=frame_outlier_min_points,
           final_recheck_iterations=final_recheck_iterations,

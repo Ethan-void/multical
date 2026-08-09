@@ -63,7 +63,8 @@ class OptimizerOpts:
   
   iter : int = 3 # Iterations of bundle adjustment/outlier rejection
   loss : str = choice('linear', 'soft_l1', 'huber', 'arctan', default='linear') # Loss function to use in bundle adjustment
-  initial_loss : str = choice('linear', 'soft_l1', 'huber', 'arctan', default='soft_l1') # Robust loss for the first adjustment round
+  initial_loss : str = choice('linear', 'soft_l1', 'huber', 'arctan', default='soft_l1') # Robust loss for the all-observation warmup (or first adjustment when warmup is disabled)
+  warmup_before_outlier_rejection : bool = False # Fit all observations once before applying hard outlier rejection
 
   outlier_quantile : float = 0.75 # Quantile for outlier rejection (multiplied by threshold factor)
   outlier_threshold : float = 5.0 # Threshold for outliers (factor of quartile of reprojection error)

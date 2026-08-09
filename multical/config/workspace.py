@@ -61,6 +61,7 @@ def optimize(ws : Workspace, opt : OptimizerOpts = OptimizerOpts()):
     motion=not opt.fix_motion,
     num_adjustments=opt.iter,
     initial_loss=opt.initial_loss,
+    warmup_before_outlier_rejection=opt.warmup_before_outlier_rejection,
     auto_scale=opt.auto_scale, 
     outlier_threshold=opt.outlier_threshold,
     outlier_min_threshold=opt.outlier_min_threshold,

@@ -14,6 +14,7 @@ def test_iter_option_controls_adjustment_rounds():
   assert workspace.name == "calibration"
   assert workspace.kwargs["num_adjustments"] == 7
   assert workspace.kwargs["initial_loss"] == "soft_l1"
+  assert workspace.kwargs["warmup_before_outlier_rejection"] is False
   assert workspace.kwargs["outlier_min_threshold"] == 1.0
   assert workspace.kwargs["outlier_max_threshold"] is None
   assert workspace.kwargs["frame_outlier_ratio"] == 0.8

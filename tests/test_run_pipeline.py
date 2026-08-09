@@ -22,6 +22,26 @@ def test_cli_arguments_support_flags_lists_and_false_values():
   ]
 
 
+def test_grouped_stereo_config_enables_warmup_only_for_local_pairs():
+  config = pipeline.load_config(
+    SCRIPT.parents[1] / "configs" / "pipeline.worldgroups.20260804.yaml"
+  )
+  stages = {
+    stage["name"]: stage for stage in pipeline.stage_items(config)
+  }
+
+  assert stages["extrinsic_01"]["args"][
+    "warmup_before_outlier_rejection"
+  ] is True
+  assert stages["extrinsic_23"]["args"][
+    "warmup_before_outlier_rejection"
+  ] is True
+  assert "warmup_before_outlier_rejection" not in stages["intrinsic"]["args"]
+  assert stages["worldgroupba"]["args"]["relative_prior_weights"] == [
+    2.0, 5.0
+  ]
+
+
 def test_validation_camera_selector_uses_group_and_camera():
   stages = [
     {
@@ -168,6 +188,47 @@ def test_worldgroups_command_tracks_all_inputs_and_outputs(tmp_path):
   command = pipeline.command_for(stage)
   assert command[3] == "worldgroups"
   assert "--calibrations" in command
+
+
+def test_worldgroupba_tracks_workspaces_inputs_and_outputs(tmp_path):
+  inputs = {
+    name: tmp_path / name for name in (
+      "intrinsic.json", "initial.json", "calibration01.json",
+      "calibration23.json", "calibration01.pkl", "calibration23.pkl",
+      "world01.yaml", "world23.yaml"
+    )
+  }
+  for path in inputs.values():
+    path.write_text("{}", encoding="utf-8")
+  output = tmp_path / "world.json"
+  combined = tmp_path / "calibration.json"
+  stage = {
+    "name": "worldgroupba",
+    "command": "worldgroupba",
+    "args": {
+      "intrinsic": str(inputs["intrinsic.json"]),
+      "initial_world_extrinsics": str(inputs["initial.json"]),
+      "calibrations": [
+        str(inputs["calibration01.json"]),
+        str(inputs["calibration23.json"])
+      ],
+      "workspaces": [
+        str(inputs["calibration01.pkl"]),
+        str(inputs["calibration23.pkl"])
+      ],
+      "correspondences": [
+        str(inputs["world01.yaml"]), str(inputs["world23.yaml"])
+      ],
+      "output": str(output),
+      "calibration_output": str(combined)
+    }
+  }
+
+  assert pipeline.missing_inputs(stage) == []
+  assert pipeline.output_paths(stage) == [output, combined]
+  command = pipeline.command_for(stage)
+  assert command[3] == "worldgroupba"
+  assert "--workspaces" in command
 
 
 def test_analyze_worldgroups_tracks_json_and_xlsx_outputs(tmp_path):

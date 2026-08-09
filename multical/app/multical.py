@@ -15,6 +15,7 @@ from multical.app.vis import Vis
 from multical.app.world import World
 from multical.app.worldmulti import Worldmulti
 from multical.app.worldgroups import Worldgroups
+from multical.app.worldgroupba import Worldgroupba
 
 
 @dataclass
@@ -31,10 +32,11 @@ class Multical:
   - world: anchor relative camera poses to measured world coordinates
   - worldmulti: jointly anchor a fixed rig using multiple cameras
   - worldgroups: merge independently world-anchored local camera groups
+  - worldgroupba: jointly refine grouped world poses with local stereo priors
   """ 
   command : Union[
     Calibrate, Intrinsic, Boards, Vis, Rectify, World, Worldmulti, Worldgroups,
-    Observe, Triangulate, Evaluate3d
+    Worldgroupba, Observe, Triangulate, Evaluate3d
   ]
    
   def execute(self):
