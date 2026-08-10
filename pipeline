@@ -2,7 +2,7 @@
 set -eu
 
 REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-CONFIG=${MULTICAL_PIPELINE_CONFIG:-configs/pipeline.worldgroups.20260804.yaml}
+CONFIG=${MULTICAL_PIPELINE_CONFIG:-configs/pipeline.worldgroups.20260810.yaml}
 
 if [ "${1:-}" = "-c" ] || [ "${1:-}" = "--config" ]; then
   if [ "$#" -lt 2 ]; then

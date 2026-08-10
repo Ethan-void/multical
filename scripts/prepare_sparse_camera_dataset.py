@@ -1,4 +1,8 @@
-"""Fill missing multi-camera frames with safe, solid-color placeholders."""
+"""Fill missing multi-camera frames with safe, solid-color placeholders.
+
+uv run python scripts/prepare_sparse_camera_dataset.py 补帧
+uv run python scripts/prepare_sparse_camera_dataset.py --remove 撤销
+"""
 
 import argparse
 import hashlib
@@ -12,6 +16,10 @@ from natsort import natsorted
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".ppm", ".bmp"}
+
+# Edit these defaults to run the script without passing paths or cameras.
+DEFAULT_DATASET_ROOT = "dataset/pending/20260810"
+DEFAULT_CAMERAS = ["cam0", "cam1","cam2", "cam3"]
 DEFAULT_MANIFEST = "placeholder_manifest.json"
 
 
@@ -212,12 +220,14 @@ def parse_args():
     )
   )
   parser.add_argument(
-    "--image_path", "--dataset-root", dest="image_path", required=True,
-    help="Directory containing one subdirectory per camera."
+    "--image_path", "--dataset-root", dest="image_path",
+    help=("Directory containing one subdirectory per camera. When omitted, "
+          "DEFAULT_DATASET_ROOT at the top of this script is used.")
   )
   parser.add_argument(
     "--cameras", nargs="+",
-    help="Camera directory names, for example C1 C2 C3 C4."
+    help=("Camera directory names, for example cam0 cam1. When omitted, "
+          "DEFAULT_CAMERAS at the top of this script is used.")
   )
   parser.add_argument(
     "--gray", type=int, default=127,
@@ -240,14 +250,22 @@ def parse_args():
 
 def main():
   args = parse_args()
-  if not args.remove and not args.cameras:
-    raise ValueError("--cameras is required unless --remove is used")
+  image_path = args.image_path or DEFAULT_DATASET_ROOT
+  cameras = args.cameras or DEFAULT_CAMERAS
+  if not image_path:
+    raise ValueError(
+      "set DEFAULT_DATASET_ROOT or pass --dataset-root"
+    )
+  if not args.remove and not cameras:
+    raise ValueError(
+      "set DEFAULT_CAMERAS or pass --cameras unless --remove is used"
+    )
   result = (
-    remove_placeholders(args.image_path, args.manifest)
+    remove_placeholders(image_path, args.manifest)
     if args.remove else
     fill_placeholders(
-      args.image_path,
-      args.cameras,
+      image_path,
+      cameras,
       gray=args.gray,
       manifest_name=args.manifest,
       dry_run=args.dry_run

@@ -51,16 +51,6 @@
 
 适用条件：`cam0/cam1` 与 `cam2/cam3` 之间难以拍到可靠的共同标定板，但两个相机组都能观测到已测量的世界控制点。两个组必须使用完全相同的世界坐标定义和长度单位。
 
-### 1.3 如何选择
-
-| 条件 | 推荐配置 |
-|---|---|
-| 四台相机的标定板观测能够形成连通图 | `pipeline.20260804.yaml` |
-| 只能保证组内共同观测，组间没有可靠共同标定板 | `pipeline.worldgroups.20260804.yaml` |
-| 希望单独验证固定后的四相机外参 | `pipeline.20260804.yaml` |
-| 希望检查局部双目、世界控制点和跨组 3D 的一致性 | `pipeline.worldgroups.20260804.yaml` |
-
-只要全局四相机外参数据足够可靠，优先使用第一种流程。分组流程解决的是组间共同视域不足的问题，其最终精度会更依赖世界控制点的测量和空间分布。
 
 ## 2. 环境和快速开始
 
@@ -79,10 +69,6 @@ uv pip install -e .
 # pipeline 脚本默认使用分组配置
 ./pipeline list
 ./pipeline dry-run
-
-# 检查全局四相机配置
-./pipeline --config configs/pipeline.20260804.yaml list
-./pipeline --config configs/pipeline.20260804.yaml dry-run
 ```
 
 运行完整流程：
@@ -90,12 +76,10 @@ uv pip install -e .
 ```bash
 # 分组世界坐标流程；这是 ./pipeline 的默认配置
 ./pipeline all
-
-# 全局四相机流程
-./pipeline --config configs/pipeline.20260804.yaml all
 ```
 
 `all` 默认带 `--resume`。已成功且命令、输入、输出均未变化的阶段会自动跳过，可以安全地在失败或中断后重新执行。
+
 
 ## 3. 数据目录
 
@@ -127,36 +111,6 @@ uv pip install -e .
 └── pipeline_state.json
 ```
 
-### 3.2 分组世界坐标流程
-
-默认数据目录和输出目录都是 `20260804_worldgroups/`：
-
-```text
-20260804_worldgroups/
-├── intrinsic/cam0/ ... cam3/
-├── extrinsic/cam0/ ... cam3/     # 组内同步外参图片
-├── extrinsic_01/                 # cam0/cam1 标定输出
-├── extrinsic_23/                 # cam2/cam3 标定输出
-├── extrinsic/
-│   ├── calibration.initial.json  # 初始合并结果
-│   └── calibration.json          # 联合优化后的全局标定
-├── world/
-│   ├── world_images/cam0/ ... cam3/
-│   ├── world_markers_01.yaml     # cam0/cam1 世界控制点
-│   ├── world_markers_23.yaml     # cam2/cam3 世界控制点
-│   ├── group01.json
-│   ├── group23.json
-│   ├── world_extrinsic.initial.json
-│   └── world_extrinsic.json
-├── observe/
-│   ├── measured_points/cam0/ ... cam3/
-│   └── measured_observations.yaml
-├── measured_world_points.yaml
-├── triangulation/
-├── reports/
-└── pipeline_state.json
-```
-
 相机目录中的同名图片被视为同一时刻，例如：
 
 ```text
@@ -171,9 +125,8 @@ extrinsic/cam1/000015.jpg
 ### 4.1 `intrinsic`：计算内参和畸变
 
 ```bash
-./pipeline --config configs/pipeline.20260804.yaml stage intrinsic
+./pipeline stage intrinsic
 ```
-
 对四台相机分别进行内参标定。每台相机最多选取 40 张图片，`intrinsic_error_limit: 0.5` 用于控制内参图像的误差筛选。
 
 主要输出：
@@ -185,7 +138,7 @@ extrinsic/cam1/000015.jpg
 ### 4.2 `extrinsic`：联合计算四相机外参
 
 ```bash
-./pipeline --config configs/pipeline.20260804.yaml stage extrinsic --with-deps
+./pipeline stage extrinsic --with-deps
 ```
 
 该阶段读取四台相机的同步图片，固定内参，只优化相机和标定板位姿。`cam2` 是相机组内部基准，`soft_l1` 用于降低异常观测的影响，优化执行 3 轮。

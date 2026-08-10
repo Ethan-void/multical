@@ -1,0 +1,213 @@
+variables:
+  dataset: 20260810_worldgroups
+  boards: boards/charuco_1600x1200.yaml
+  cameras: &cameras [cam0, cam1, cam2, cam3]
+  output_root: 20260810_worldgroups
+
+state_file: "{output_root}/pipeline_state.json"
+
+env:
+  OPENCV_OPENCL_RUNTIME: disabled
+
+stages:
+  intrinsic:
+    command: intrinsic
+    group: calibration
+    args:
+      image_path: "{dataset}/intrinsic"
+      boards: "{boards}"
+      cameras: *cameras
+      limit_intrinsic: 40
+      intrinsic_error_limit: 0.5
+      output_path: "{output_root}/intrinsic"
+      name: intrinsic
+
+  extrinsic_01:
+    command: calibrate
+    group: local_stereo
+    needs: [intrinsic]
+    args:
+      image_path: "{dataset}/extrinsic"
+      boards: "{boards}"
+      cameras: [cam0, cam1]
+      calibration: "{output_root}/intrinsic/intrinsic.json"
+      fix_intrinsic: true
+      master: cam0
+      loss: soft_l1
+      warmup_before_outlier_rejection: true
+      iter: 3
+      output_path: "{output_root}/extrinsic_01"
+      name: calibration
+
+  extrinsic_23:
+    command: calibrate
+    group: local_stereo
+    needs: [intrinsic]
+    args:
+      image_path: "{dataset}/extrinsic"
+      boards: "{boards}"
+      cameras: [cam2, cam3]
+      calibration: "{output_root}/intrinsic/intrinsic.json"
+      fix_intrinsic: true
+      master: cam2
+      loss: soft_l1
+      warmup_before_outlier_rejection: true
+      iter: 3
+      output_path: "{output_root}/extrinsic_23"
+      name: calibration
+
+  world_01:
+    command: worldmulti
+    group: world_control
+    needs: [extrinsic_01]
+    args:
+      calibration: "{output_root}/extrinsic_01/calibration.json"
+      correspondences: "{dataset}/world/world_markers_01.yaml"
+      output: "{output_root}/world/group01.json"
+      ransac_threshold: 3.0
+      loss: soft_l1
+
+  world_23:
+    command: worldmulti
+    group: world_control
+    needs: [extrinsic_23]
+    args:
+      calibration: "{output_root}/extrinsic_23/calibration.json"
+      correspondences: "{dataset}/world/world_markers_23.yaml"
+      output: "{output_root}/world/group23.json"
+      ransac_threshold: 3.0
+      loss: soft_l1
+
+  worldgroups:
+    command: worldgroups
+    group: reconstruction
+    needs: [world_01, world_23]
+    args:
+      intrinsic: "{output_root}/intrinsic/intrinsic.json"
+      calibrations:
+        - "{output_root}/extrinsic_01/calibration.json"
+        - "{output_root}/extrinsic_23/calibration.json"
+      world_extrinsics:
+        - "{output_root}/world/group01.json"
+        - "{output_root}/world/group23.json"
+      group_names: [group01, group23]
+      master: cam0
+      output: "{output_root}/world/world_extrinsic.initial.json"
+      calibration_output: "{output_root}/extrinsic/calibration.initial.json"
+
+  worldgroupba:
+    command: worldgroupba
+    group: reconstruction
+    needs: [worldgroups]
+    args:
+      intrinsic: "{output_root}/intrinsic/intrinsic.json"
+      initial_world_extrinsics: "{output_root}/world/world_extrinsic.initial.json"
+      calibrations:
+        - "{output_root}/extrinsic_01/calibration.json"
+        - "{output_root}/extrinsic_23/calibration.json"
+      workspaces:
+        - "{output_root}/extrinsic_01/calibration.pkl"
+        - "{output_root}/extrinsic_23/calibration.pkl"
+      correspondences:
+        - "{dataset}/world/world_markers_01.yaml"
+        - "{dataset}/world/world_markers_23.yaml"
+      group_names: [group01, group23]
+      master: cam0
+      ransac_threshold: 3.0
+      loss: soft_l1
+      relative_rotation_sigma_deg: 0.1
+      relative_translation_sigma: 0.02
+      relative_prior_weight: 5.0
+      relative_prior_weights: [2.0, 5.0]
+      final_recheck_iterations: 0
+      output: "{output_root}/world/world_extrinsic.json"
+      calibration_output: "{output_root}/extrinsic/calibration.json"
+
+  observe:
+    enabled: false
+    interactive: true
+    command: observe
+    group: reconstruction
+    args:
+      image_path: "{dataset}/observe/measured_points"
+      cameras: *cameras
+      output: "{dataset}/observe/measured_observations.yaml"
+      frame: 000000.jpg
+      columns: 2
+      tile_width: 640
+
+
+  triangulate:
+    command: triangulate
+    group: reconstruction
+    needs: [worldgroupba]
+    args:
+      calibration: "{output_root}/intrinsic/intrinsic.json"
+      world_extrinsics: "{output_root}/world/world_extrinsic.json"
+      observations: "{dataset}/observe/measured_observations.yaml"
+      output: "{output_root}/triangulation/triangulation.json"
+      reprojection_threshold: 1.5
+      min_ray_angle_deg: 8.0
+      refine: true
+      refine_loss: soft_l1
+
+  evaluate3d:
+    command: evaluate3d
+    group: report
+    needs: [triangulate]
+    args:
+      reconstruction: "{output_root}/triangulation/triangulation.json"
+      ground_truth: "{dataset}/measured_world_points.yaml"
+      output: "{output_root}/reports/evaluation3d.json"
+      max_mean_error: 0.05
+      max_p95_error: 0.10
+      max_error: 0.20
+
+
+  analyze_intrinsic:
+    # 单独使用时显式选择；不在 all 中重复生成报告。
+    enabled: false
+    command: analyze
+    group: intrinsic_analysis
+    args:
+      intrinsic: "{output_root}/intrinsic/intrinsic.json"
+      output: "{output_root}/reports/intrinsic_analysis.xlsx"
+
+  analyze_extrinsic_01:
+    # workspace 可提供逐观测和优化过程等更完整的外参分析。
+    enabled: false
+    command: analyze
+    group: extrinsic_analysis
+    args:
+      extrinsic: "{output_root}/extrinsic_01/calibration.json"
+      workspace: "{output_root}/extrinsic_01/calibration.pkl"
+      output: "{output_root}/reports/extrinsic_analysis_01.xlsx"
+
+  analyze_extrinsic_23:
+    # workspace 可提供逐观测和优化过程等更完整的外参分析。
+    enabled: false
+    command: analyze
+    group: extrinsic_analysis
+    args:
+      extrinsic: "{output_root}/extrinsic_23/calibration.json"
+      workspace: "{output_root}/extrinsic_23/calibration.pkl"
+      output: "{output_root}/reports/extrinsic_analysis_23.xlsx"
+
+  analyze_worldgroups:
+    command: analyze_worldgroups
+    group: report
+    needs: [worldgroupba, evaluate3d]
+    args:
+      world_extrinsics: "{output_root}/world/world_extrinsic.json"
+      evaluation: "{output_root}/reports/evaluation3d.json"
+      output: "{output_root}/reports/worldgroups_analysis.json"
+      max_local_rms_px: 0.5
+      min_world_inlier_rate: 0.5
+      max_world_rms_px: 2.5
+      min_shared_control_points: 4
+      max_shared_control_mean_px: 3.0
+      max_shared_control_spread_px: 3.0
+      min_cross_group_3d_points: 3
+      max_cross_group_mean_error: 0.05
+      max_cross_group_p95_error: 0.10
+      max_cross_group_error: 0.20
