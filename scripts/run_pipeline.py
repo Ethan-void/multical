@@ -27,7 +27,7 @@ INPUT_ARGUMENTS = {
   "world_extrinsics", "observations", "reconstruction", "ground_truth",
   "workspace", "workspace_file", "intrinsic", "extrinsic",
   "intrinsic_detections", "calibrations", "evaluation", "workspaces",
-  "initial_world_extrinsics"
+  "initial_world_extrinsics", "world_points", "world_correspondences"
 }
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".ppm", ".bmp"}
 

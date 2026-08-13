@@ -22,6 +22,33 @@ def test_cli_arguments_support_flags_lists_and_false_values():
   ]
 
 
+def test_world_manual_pipeline_is_opt_in_and_tracks_world_points():
+  config = pipeline.load_config(
+    SCRIPT.parents[1] / "configs" / "pipeline.worldgroups.20260811.yaml"
+  )
+  stages = {
+    stage["name"]: stage for stage in pipeline.stage_items(config)
+  }
+
+  observe = stages["observe_world_45"]
+  assert observe["enabled"] is False
+  assert observe["args"]["cameras"] == ["cam4", "cam5"]
+  assert observe["args"]["image_path"].endswith(
+    "20260811/world/world_images"
+  )
+  assert observe["args"]["world_correspondences"].endswith(
+    "20260811/world/world_markers_45.yaml"
+  )
+  assert "world_correspondences" in pipeline.INPUT_ARGUMENTS
+  assert "--world_correspondences" in pipeline.command_for(observe)
+  assert stages["worldgroupba_manual"]["args"]["output"].endswith(
+    "world_extrinsic.manual.json"
+  )
+  assert stages["worldgroupba"]["args"]["output"].endswith(
+    "world_extrinsic.json"
+  )
+
+
 def test_grouped_stereo_config_enables_warmup_only_for_local_pairs():
   config = pipeline.load_config(
     SCRIPT.parents[1] / "configs" / "pipeline.worldgroups.20260804.yaml"

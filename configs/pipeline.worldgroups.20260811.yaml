@@ -1,8 +1,8 @@
 variables:
-  dataset: 20260810
+  dataset: 20260811
   boards: boards/charuco_1600x1200.yaml
   cameras: &cameras [cam0, cam1,cam4, cam5]
-  output_root: 20260810
+  output_root: 20260811
 
 state_file: "{output_root}/pipeline_state.json"
 

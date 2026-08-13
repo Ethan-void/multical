@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import cv2
 import numpy as np
 
@@ -6,7 +8,8 @@ from multical.app.worldgroupba import (
   _parameters_to_transform,
   _project,
   _resolve_prior_weights,
-  _transform_to_parameters
+  _transform_to_parameters,
+  _write_final_marker_checks
 )
 
 
@@ -166,3 +169,70 @@ def test_resolve_prior_weights_supports_defaults_and_group_overrides():
     assert "must match group_names" in str(error)
   else:
     raise AssertionError("expected mismatched group weights to fail")
+
+
+def test_final_marker_checks_use_final_solution_and_separate_directory(
+    tmp_path, monkeypatch):
+  captured = {}
+
+  def fake_write(
+      calibration, rig_poses, world_to_rig, observations,
+      errors, inlier_mask, destination, skipped_observations=(),
+      check_directory="check"):
+    captured.update({
+      "calibration": calibration,
+      "rig_poses": rig_poses,
+      "world_to_rig": world_to_rig,
+      "observations": observations,
+      "errors": errors,
+      "inlier_mask": inlier_mask,
+      "destination": destination,
+      "skipped_observations": skipped_observations,
+      "check_directory": check_directory
+    })
+    return [{
+      "validation_image": "check/final/group01/cam0/001_capture.jpg"
+    }]
+
+  monkeypatch.setattr(
+    "multical.app.worldgroupba.write_multicamera_check_images",
+    fake_write
+  )
+  intrinsic = {"cameras": {"cam0": _camera()}}
+  observations = [{"camera": "cam0"}]
+  skipped = [{"camera": "cam0", "reason": "marker_quality_rejected"}]
+  world_to_group = _translation(0.0, 0.0, 5.0)
+  local_poses = {"cam0": np.eye(4)}
+  errors = np.asarray([1.25])
+  inliers = np.asarray([True])
+
+  checks = _write_final_marker_checks(
+    intrinsic,
+    {
+      "name": "group01",
+      "world_observations": observations,
+      "skipped_world_observations": skipped
+    },
+    {
+      "local_poses": local_poses,
+      "world_to_group": world_to_group
+    },
+    errors,
+    inliers,
+    tmp_path / "world_extrinsic.json"
+  )
+
+  assert checks == [{
+    "validation_image": "check/final/group01/cam0/001_capture.jpg"
+  }]
+  assert captured["calibration"] is intrinsic
+  assert captured["rig_poses"] is local_poses
+  assert captured["world_to_rig"] is world_to_group
+  assert captured["observations"] is observations
+  assert captured["errors"] is errors
+  assert captured["inlier_mask"] is inliers
+  assert captured["destination"] == tmp_path
+  assert captured["skipped_observations"] is skipped
+  assert captured["check_directory"] == (
+    Path("check") / "final" / "group01"
+  )

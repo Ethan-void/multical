@@ -33,8 +33,13 @@ CAMERA_PATTERN = re.compile(r"^ca?m(\d+)$", re.IGNORECASE)
 
 # macOS configuration: edit these two paths if you prefer not to pass paths
 # on the command line. Keep DEFAULT_OUTPUT_PATH empty to use SOURCE/merged.
-DEFAULT_SOURCE_PATH = "dataset/pending/20260810"
-DEFAULT_OUTPUT_PATH = "dataset/merged/20260810"
+DEFAULT_SOURCE_PATH = "dataset/pending"
+DEFAULT_OUTPUT_PATH = "dataset/merged/20260811"
+
+# Empty lists mean "all". Names must match directories under the source.
+# Example: ["capture1", "capture3"] and ["cam0", "cam5"].
+DEFAULT_SESSION_NAMES: list[str] = ["capture3", "capture4"]
+DEFAULT_CAMERA_NAMES: list[str] = ["cam4", "cam5"]
 
 
 class MergeError(RuntimeError):
@@ -69,11 +74,41 @@ def resolve_path(path: Path) -> Path:
   return path.expanduser().resolve()
 
 
-def discover_sessions(source: Path, output: Path) -> list[Session]:
+def parse_camera_names(names: Iterable[str]) -> set[int]:
+  cameras = set()
+  invalid = []
+  for name in names:
+    match = CAMERA_PATTERN.fullmatch(name)
+    if match is None:
+      invalid.append(name)
+    else:
+      cameras.add(int(match.group(1)))
+  if invalid:
+    raise MergeError(
+      "invalid camera names (expected camN or cmN): {}".format(
+        ", ".join(invalid)
+      )
+    )
+  return cameras
+
+
+def discover_sessions(
+    source: Path,
+    output: Path,
+    selected_sessions: Iterable[str] = (),
+    selected_cameras: Iterable[str] = (),
+) -> list[Session]:
+  requested_sessions = set(selected_sessions)
+  requested_cameras = parse_camera_names(selected_cameras)
+  found_session_names = set()
+  found_camera_numbers = set()
   sessions = []
   for directory in sorted(source.iterdir(), key=lambda path: natural_key(path.name)):
     if not directory.is_dir() or directory.resolve() == output:
       continue
+    if requested_sessions and directory.name not in requested_sessions:
+      continue
+    found_session_names.add(directory.name)
 
     cameras = {}
     for candidate in directory.iterdir():
@@ -83,6 +118,8 @@ def discover_sessions(source: Path, output: Path) -> list[Session]:
       if match is None:
         continue
       camera = int(match.group(1))
+      if requested_cameras and camera not in requested_cameras:
+        continue
       if camera in cameras:
         raise MergeError(
           "session {!r} has duplicate camera {} directories: {} and {}".format(
@@ -90,15 +127,28 @@ def discover_sessions(source: Path, output: Path) -> list[Session]:
           )
         )
       cameras[camera] = candidate
+      found_camera_numbers.add(camera)
 
     if cameras:
       sessions.append(Session(directory.name, cameras))
 
+  missing_sessions = requested_sessions - found_session_names
+  if missing_sessions:
+    raise MergeError(
+      "selected session directories do not exist: {}".format(
+        ", ".join(sorted(missing_sessions, key=natural_key))
+      )
+    )
+  missing_cameras = requested_cameras - found_camera_numbers
+  if missing_cameras:
+    raise MergeError(
+      "selected camera directories were not found: {}".format(
+        ", ".join("cam{}".format(camera) for camera in sorted(missing_cameras))
+      )
+    )
   if not sessions:
     raise MergeError(
-      "no session/cam0 (or session/cm0) directory structure found in {}".format(
-        source
-      )
+      "no matching session/camN directory structure found in {}".format(source)
     )
   return sessions
 
@@ -237,6 +287,16 @@ def make_parser() -> argparse.ArgumentParser:
     help="output folder (default: SOURCE/merged); it must be empty"
   )
   parser.add_argument(
+    "--sessions", nargs="+",
+    help=("capture-session directory names to merge; when omitted, "
+          "DEFAULT_SESSION_NAMES is used, and an empty default means all")
+  )
+  parser.add_argument(
+    "--cameras", nargs="+",
+    help=("camera directories to merge, for example cam0 cam5; when omitted, "
+          "DEFAULT_CAMERA_NAMES is used, and an empty default means all")
+  )
+  parser.add_argument(
     "--dry-run", action="store_true",
     help="validate and show the planned result without copying"
   )
@@ -273,7 +333,18 @@ def main(argv: list[str] | None = None) -> int:
       raise MergeError("source directory does not exist: {}".format(source))
     if output == source:
       raise MergeError("output directory cannot be the source directory")
-    sessions = discover_sessions(source, output)
+    selected_sessions = (
+      args.sessions if args.sessions is not None else DEFAULT_SESSION_NAMES
+    )
+    selected_cameras = (
+      args.cameras if args.cameras is not None else DEFAULT_CAMERA_NAMES
+    )
+    sessions = discover_sessions(
+      source,
+      output,
+      selected_sessions=selected_sessions,
+      selected_cameras=selected_cameras,
+    )
     operations, frame_count = plan_merge(
       sessions, all_files=args.all_files,
       require_complete=args.require_complete,

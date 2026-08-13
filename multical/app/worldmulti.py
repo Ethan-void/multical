@@ -584,9 +584,13 @@ def solve_joint_world(
 
 def write_multicamera_check_images(
     calibration, rig_poses, world_to_rig, observations,
-    errors, inlier_mask, destination, skipped_observations=()
+    errors, inlier_mask, destination, skipped_observations=(),
+    check_directory="check"
 ):
   """Write detected-vs-projected marker overlays for every camera/capture."""
+  check_directory = Path(check_directory)
+  if check_directory.is_absolute() or ".." in check_directory.parts:
+    raise ValueError("check_directory must be a relative path")
   grouped = {}
   for index, observation in enumerate(observations):
     if not observation.get("image") or not observation.get("corners"):
@@ -626,9 +630,7 @@ def write_multicamera_check_images(
         for value in str(capture)
       )
     )
-    relative_path = (
-      Path("check") / camera_name / output_name
-    )
+    relative_path = check_directory / camera_name / output_name
     output_path = Path(destination) / relative_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
     point_records = []

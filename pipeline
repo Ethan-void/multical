@@ -2,11 +2,11 @@
 set -eu
 
 REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-CONFIG=${MULTICAL_PIPELINE_CONFIG:-configs/pipeline.worldgroups.20260810.yaml}
+CONFIG=${MULTICAL_PIPELINE_CONFIG:-configs/pipeline.worldgroups.20260811.yaml}
 
 if [ "${1:-}" = "-c" ] || [ "${1:-}" = "--config" ]; then
   if [ "$#" -lt 2 ]; then
-    echo "usage: ./pipeline --config CONFIG [all|validation CAMERA|list|dry-run]" >&2
+    echo "usage: ./pipeline --config CONFIG [all|world-observe|world-extrinsic|validation CAMERA|list|dry-run]" >&2
     exit 2
   fi
   CONFIG=$2
@@ -30,6 +30,19 @@ case "${1:-all}" in
     shift 2
     exec uv run python scripts/run_pipeline.py \
       --config "$CONFIG" --stage validation --camera "$CAMERA" --resume "$@"
+    ;;
+  world-observe|observe-world)
+    shift
+    exec uv run python scripts/run_pipeline.py \
+      --config "$CONFIG" \
+      --stage observe_world_01,observe_world_45 --resume "$@"
+    ;;
+  world-extrinsic|world-manual)
+    shift
+    exec uv run python scripts/run_pipeline.py \
+      --config "$CONFIG" \
+      --stage world_manual_01,world_manual_45,worldgroups_manual,worldgroupba_manual \
+      --resume "$@"
     ;;
   analyze|analysis)
     if [ "$#" -lt 2 ]; then

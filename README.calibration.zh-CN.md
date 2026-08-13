@@ -445,6 +445,151 @@ DATASET/triangulation/triangulation.json
 
 低重投影误差不必然代表世界坐标误差小。远距离或射线夹角不理想时，即使重投影只有约 1 px，也可能产生数厘米甚至更大的三维误差。
 
+### 单点像素坐标转 3D
+
+完成标定后，可使用独立脚本直接输入同一目标在多台相机中的同步像素坐标：
+
+```bash
+uv run python scripts/pixel_to_3d.py \
+  --pixel cam0 1432.5 636.6 \
+  --pixel cam1 495.0 556.95 \
+  --pixel cam4 939.25 680.15 \
+  --pixel cam5 1013.7 660.95
+```
+
+脚本默认使用当前已验收的 `20260811/world/world_extrinsic.json`，并从该文件自动读取内参路径。其他数据集可显式传入：
+
+```bash
+uv run python scripts/pixel_to_3d.py \
+  --world-extrinsics DATASET/world/world_extrinsic.json \
+  --calibration DATASET/intrinsic/intrinsic.json \
+  --pixel cam0 U0 V0 \
+  --pixel cam1 U1 V1
+```
+
+自动化程序也可从标准输入发送 JSON，并只接收三个空格分隔的数值：
+
+```bash
+printf '%s\n' '{"observations":{"cam0":[1432.5,636.6],"cam1":[495.0,556.95]}}' | \
+  uv run python scripts/pixel_to_3d.py --input - --format xyz
+```
+
+默认 JSON 输出包含 `point_world`、使用/拒绝的相机、各相机重投影误差、重投影 RMS 和最大射线夹角。成功退出码为 `0`；几何条件不合格为 `1`；输入或配置错误为 `2`。单台相机的一个像素只能确定一条空间射线，不能唯一确定三维点，因此至少需要两台相机对同一目标的同步像素坐标。
+
+批量 TXT 输入时，每行表示一个待重建点。第一列是点 ID，后面按 `相机名 U V` 重复；不同点可以使用不同数量的相机：
+
+```text
+# point_id camera u v camera u v ...
+P01 cam0 1786.3 619.25 cam1 653.6 510.4 cam4 628.3 1041.15
+P02 cam1 772.3 540.85 cam4 373.2 740.3 cam5 574.6 613.2
+```
+
+执行：
+
+```bash
+uv run python scripts/pixel_to_3d.py \
+  --input-txt pixels.txt \
+  --output-txt points_3d.txt
+```
+
+输出是制表符分隔的 TXT，列为 `point_id X Y Z status reprojection_rms_px max_ray_angle_deg reason`。重建失败的行会保留点 ID，并将 XYZ 写为 `nan`，避免输入输出错位。
+
+如果每台相机分别提供一个 TXT，则每个文件每个有效行只写 `U V`，各文件有效行按顺序一一对应。例如 `cam0.txt`：
+
+```text
+# U V
+1786.3 619.25
+1432.5 636.6
+```
+
+以及对应的 `cam1.txt`：
+
+```text
+653.6 510.4
+495.0 556.95
+```
+
+执行：
+
+```bash
+uv run python scripts/pixel_to_3d.py \
+  --camera-txt cam0 cam0.txt \
+  --camera-txt cam1 cam1.txt \
+  --camera-txt cam4 cam4.txt \
+  --camera-txt cam5 cam5.txt \
+  --output-txt points_3d.txt
+```
+
+脚本忽略空行和以 `#` 开头的注释行，也接受 `U,V` 格式。所有相机文件的有效坐标行数必须相同；输出点 ID 会按行生成 `P000001`、`P000002` 等。
+
+也可以直接修改 `scripts/pixel_to_3d.py` 顶部的配置区：
+
+```python
+DEFAULT_WORLD_EXTRINSICS = "/path/to/world_extrinsic.json"
+DEFAULT_CALIBRATION = None
+DEFAULT_CAMERA_TXT_FILES = {
+  "cam0": "/path/to/cam0.txt",
+  "cam1": "/path/to/cam1.txt",
+  "cam4": "/path/to/cam4.txt",
+  "cam5": "/path/to/cam5.txt"
+}
+DEFAULT_OUTPUT_TXT = "/path/to/points_3d.txt"
+```
+
+修改后无需输入参数，直接运行：
+
+```bash
+uv run python scripts/pixel_to_3d.py
+```
+
+命令行参数仍然可用，并优先于顶部的相机 TXT 和输出文件配置。
+
+球检测程序输出的 CSV 可以直接输入；脚本按 `Frame` 对齐，读取 `Visibility=1` 的 `X,Y` 框中心：
+
+```bash
+uv run python scripts/pixel_to_3d.py \
+  --camera-csv cam0 output/left/csv/SEQUENCE_ball.csv \
+  --camera-csv cam1 output/right/csv/SEQUENCE_ball.csv \
+  --output-txt points_3d.txt
+```
+
+也可以直接读取每台相机的 LabelMe JSON 目录。脚本读取 `label=ball` 的矩形两角并计算中心像素：
+
+```bash
+uv run python scripts/pixel_to_3d.py \
+  --camera-json-dir cam0 output/left/labelme/SEQUENCE \
+  --camera-json-dir cam1 output/right/labelme/SEQUENCE \
+  --output-txt points_3d.txt
+```
+
+CSV 和 JSON 模式都按帧编号对齐。某一帧不足两台相机有效观测时，输出保留该帧并将 XYZ 标记为 `nan`。
+
+对于 `20260812/traj_*/cam*/ball.csv` 这种目录结构，可直接输入轨迹目录：
+
+```bash
+uv run python scripts/pixel_to_3d.py \
+  --trajectory-dir /data/20260812/traj_0001 \
+  --output-txt /data/20260812/traj_0001/points_3d.txt
+```
+
+脚本会自动发现所有 `cam*/ball.csv`，按 `Frame` 对齐，并仅使用 `Visibility` 有效且 `X/Y` 非空的像素。若目录名与标定相机名不同，可增加映射，例如：
+
+```bash
+  --camera-map cam2 cam4 --camera-map cam3 cam5
+```
+
+批量处理根目录下的全部 `traj_*`：
+
+```bash
+uv run python scripts/pixel_to_3d.py \
+  --dataset-dir /data/20260812 \
+  --camera-map cam2 cam4 \
+  --camera-map cam3 cam5 \
+  --output-dir /data/20260812/3d_results
+```
+
+输出分别写入 `3d_results/traj_0001/points_3d.txt`、`traj_0002/points_3d.txt` 等。不传 `--output-dir` 时，结果直接写入各自的 `traj_*` 目录。
+
 ## 12. 3D 精度验收
 
 执行：

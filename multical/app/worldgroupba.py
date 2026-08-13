@@ -11,7 +11,10 @@ import numpy as np
 from scipy import optimize
 from scipy.sparse import lil_matrix
 
-from multical.app.worldmulti import load_multicamera_correspondences
+from multical.app.worldmulti import (
+  load_multicamera_correspondences,
+  write_multicamera_check_images
+)
 from multical.config.arguments import run_with
 from multical.io.calibration_utils import (
   camera_pose_matrices,
@@ -497,6 +500,32 @@ def _marker_checks(group, errors, inlier_mask):
   return list(checks.values())
 
 
+def _final_check_directory(group_name):
+  group_name = "".join(
+    value if value.isalnum() or value in "-_." else "_"
+    for value in str(group_name)
+  )
+  if group_name in {"", ".", ".."}:
+    raise ValueError("group name cannot form an output directory")
+  return Path("check") / "final" / group_name
+
+
+def _write_final_marker_checks(
+    intrinsic, group, group_solution, errors, inlier_mask, destination):
+  """Render final-BA world marker overlays without replacing initial checks."""
+  return write_multicamera_check_images(
+    intrinsic,
+    group_solution["local_poses"],
+    group_solution["world_to_group"],
+    group["world_observations"],
+    errors,
+    inlier_mask,
+    Path(destination).parent,
+    group["skipped_world_observations"],
+    check_directory=_final_check_directory(group["name"])
+  )
+
+
 def _resolve_prior_weights(
     group_names, default_weight, group_weights=None) -> Dict[str, float]:
   default_weight = float(default_weight)
@@ -583,6 +612,8 @@ def constrained_group_bundle_adjustment(
     correspondence_files,
     group_names
   )
+  destination = Path(output_file).expanduser().resolve()
+  destination.parent.mkdir(parents=True, exist_ok=True)
   prior_weights = _resolve_prior_weights(
     group_names, relative_prior_weight, relative_prior_weights
   )
@@ -668,6 +699,14 @@ def constrained_group_bundle_adjustment(
     world_errors = final_errors[name]["world"]
     world_inliers = world_errors <= float(ransac_threshold)
     inlier_errors = world_errors[world_inliers]
+    rendered_marker_checks = _write_final_marker_checks(
+      intrinsic,
+      group,
+      group_solution,
+      world_errors,
+      world_inliers,
+      destination
+    )
     camera_statistics = {}
     for camera_name in group["cameras"]:
       indices = group["world_blocks"].get(camera_name, {}).get(
@@ -710,8 +749,14 @@ def constrained_group_bundle_adjustment(
       ),
       "camera_statistics": camera_statistics,
       "skipped_observations": group["skipped_world_observations"],
-      "marker_checks": _marker_checks(
-        group, world_errors, world_inliers
+      "marker_checks": (
+        rendered_marker_checks
+        or _marker_checks(group, world_errors, world_inliers)
+      ),
+      "marker_check_stage": "final_worldgroupba",
+      "marker_check_directory": (
+        str(_final_check_directory(name))
+        if rendered_marker_checks else None
       )
     }
     initial_record = dict(group["initial_record"])
@@ -774,8 +819,6 @@ def constrained_group_bundle_adjustment(
       name: cameras[name] for name in intrinsic["cameras"]
     }
   }
-  destination = Path(output_file).expanduser().resolve()
-  destination.parent.mkdir(parents=True, exist_ok=True)
   destination.write_text(
     json.dumps(output, indent=2) + "\n", encoding="utf-8"
   )

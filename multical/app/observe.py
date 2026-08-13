@@ -311,14 +311,151 @@ def load_existing_observations(filename):
   if not path.is_file():
     return {}
   data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-  frames = data.get("frames", []) if isinstance(data, dict) else []
-  return {
-    str(frame["frame"]): {
-      str(camera): [float(point[0]), float(point[1])]
-      for camera, point in frame.get("observations", {}).items()
+  if not isinstance(data, dict):
+    return {}
+  frames = data.get("frames", [])
+  if isinstance(frames, list) and frames:
+    return {
+      str(frame["frame"]): {
+        str(camera): [float(point[0]), float(point[1])]
+        for camera, point in frame.get("observations", {}).items()
+      }
+      for frame in frames
+      if isinstance(frame, dict) and frame.get("frame") is not None
     }
-    for frame in frames
-    if isinstance(frame, dict) and frame.get("frame") is not None
+
+  # World-extrinsic manual-point files are flat rather than frame-grouped.
+  observations = data.get("observations", [])
+  resumed = {}
+  if isinstance(observations, list):
+    for observation in observations:
+      if not isinstance(observation, dict):
+        continue
+      capture = observation.get("annotation_id", observation.get("capture"))
+      camera = observation.get("camera")
+      point = observation.get("image_point", observation.get("pixel"))
+      if capture is None or camera is None or point is None:
+        continue
+      resumed.setdefault(str(capture), {})[str(camera)] = [
+        float(point[0]), float(point[1])
+      ]
+  return resumed
+
+
+def load_world_correspondences(filename, frame_names):
+  """Load marker capture definitions while replacing detection with clicks."""
+  path = Path(filename).expanduser().resolve()
+  data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+  if not isinstance(data, dict):
+    raise ValueError("world correspondences must be a YAML/JSON mapping")
+  captures = data.get("captures")
+  if not isinstance(captures, list) or not captures:
+    raise ValueError("world correspondences must contain captures")
+
+  by_stem = {}
+  for frame_name in frame_names:
+    by_stem.setdefault(Path(str(frame_name)).stem, []).append(str(frame_name))
+  points = {}
+  work_items = []
+  for capture_index, capture in enumerate(captures):
+    if not isinstance(capture, dict):
+      raise ValueError("capture {} must be a mapping".format(capture_index))
+    capture_name = str(capture.get(
+      "name", capture.get("frame", capture_index)
+    ))
+    candidates = (
+      [capture_name] if capture_name in frame_names
+      else by_stem.get(Path(capture_name).stem, [])
+    )
+    if len(candidates) != 1:
+      raise ValueError(
+        "capture {} does not match exactly one synchronized image".format(
+          capture_name
+        )
+      )
+    markers = capture.get("markers")
+    entries = (
+      list(markers.items()) if isinstance(markers, dict)
+      else list(enumerate(markers or []))
+    )
+    if not entries:
+      raise ValueError("capture {} has no markers".format(capture_name))
+    for marker_index, (key, marker) in enumerate(entries):
+      if isinstance(markers, dict):
+        marker_id = int(key)
+        marker_data = marker if isinstance(marker, dict) else {
+          "world_point": marker
+        }
+      else:
+        if not isinstance(marker, dict) or "marker_id" not in marker:
+          raise ValueError(
+            "capture {} marker {} needs marker_id".format(
+              capture_name, marker_index
+            )
+          )
+        marker_id = int(marker["marker_id"])
+        marker_data = marker
+      occurrence = marker_data.get("occurrence")
+      suffix = "{}".format(marker_id)
+      if occurrence is not None:
+        suffix += ":{}".format(occurrence)
+      annotation_id = "{}:{}".format(capture_name, suffix)
+      if annotation_id in points:
+        raise ValueError("duplicate world observation {}".format(
+          annotation_id
+        ))
+      world_point = np.asarray(
+        marker_data.get("world_point"), dtype=np.float64
+      )
+      if world_point.shape != (3,) or not np.isfinite(world_point).all():
+        raise ValueError(
+          "{} world_point must be a finite [X, Y, Z]".format(annotation_id)
+        )
+      points[annotation_id] = world_point.tolist()
+      work_items.append({
+        "frame": annotation_id,
+        "source_frame": candidates[0],
+        "point_name": annotation_id,
+        "capture": capture_name,
+        "marker_id": marker_id,
+        "occurrence": occurrence
+      })
+  return {
+    "coordinate_frame": "world",
+    "world_units": str(data.get("world_units", "meters")),
+    "points": points,
+    "path": path,
+    "source_key": "world_correspondences",
+    "work_items": work_items
+  }
+
+
+def load_world_points(filename):
+  """Load named measured world points for manual world anchoring."""
+  path = Path(filename).expanduser().resolve()
+  data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+  if not isinstance(data, dict):
+    raise ValueError("world points must be a YAML/JSON mapping")
+  coordinate_frame = str(data.get("coordinate_frame", "world"))
+  if coordinate_frame != "world":
+    raise ValueError("world points coordinate_frame must be world")
+  points = data.get("points")
+  if not isinstance(points, dict) or not points:
+    raise ValueError("world points file must contain a non-empty points map")
+  result = {}
+  for name, value in points.items():
+    point = np.asarray(value, dtype=np.float64)
+    if point.shape != (3,) or not np.isfinite(point).all():
+      raise ValueError(
+        "world point {} must be a finite [X, Y, Z]".format(name)
+      )
+    result[str(name)] = point.tolist()
+  return {
+    "coordinate_frame": coordinate_frame,
+    "world_units": str(data.get("world_units", "meters")),
+    "points": result,
+    "path": path,
+    "source_key": "world_points"
   }
 
 
@@ -420,10 +557,67 @@ def write_observations(
   return output, path
 
 
+def write_world_observations(
+    filename, image_path, cameras, frame_names, annotations,
+    world_points, minimum_cameras=2, source_frames=None,
+    point_names=None, observation_metadata=None):
+  """Write manual pixels in worldmulti/worldgroupba correspondence format."""
+  path = Path(filename).expanduser().resolve()
+  path.parent.mkdir(parents=True, exist_ok=True)
+  points = world_points["points"]
+  observations = []
+  for frame in frame_names:
+    point_name = (point_names or {}).get(frame, frame)
+    if point_name not in points:
+      raise ValueError(
+        "annotated point {} is missing from world points".format(
+          point_name
+        )
+      )
+    if (
+        frame not in annotations or
+        len(annotations[frame]) < minimum_cameras):
+      continue
+    for camera, point in annotations[frame].items():
+      metadata = (observation_metadata or {}).get(frame, {})
+      record = {
+        "capture": str(metadata.get("capture", frame)),
+        "camera": str(camera),
+        "world_point": [float(value) for value in points[point_name]],
+        "image_point": [
+          round(float(point[0]), 3),
+          round(float(point[1]), 3)
+        ]
+      }
+      if metadata:
+        record["annotation_id"] = str(frame)
+      for key in ("marker_id", "occurrence"):
+        if metadata.get(key) is not None:
+          record[key] = metadata[key]
+      observations.append(record)
+  output = {
+    "coordinate_frame": "world",
+    "world_units": world_points["world_units"],
+    "source": {
+      "image_path": str(Path(image_path).resolve()),
+      world_points.get("source_key", "world_points"):
+        str(world_points["path"]),
+      "mode": "manual_click"
+    },
+    "cameras": list(cameras),
+    "observations": observations
+  }
+  path.write_text(
+    yaml.safe_dump(output, sort_keys=False, allow_unicode=True),
+    encoding="utf-8"
+  )
+  return output, path
+
+
 def annotate_observations(
     image_path, cameras, output, camera_pattern=None,
     columns=2, tile_width=640, start_frame=None, frame=None,
-    points=None):
+    points=None, world_points=None, world_correspondences=None):
   input_path = Path(image_path).expanduser().resolve()
   if not input_path.exists():
     raise ValueError(
@@ -462,20 +656,104 @@ def annotate_observations(
     frame_names = [frame]
   else:
     frame_names = all_frame_names
+  if world_points is not None and world_correspondences is not None:
+    raise ValueError(
+      "use either world_points or world_correspondences, not both"
+    )
+  world_point_data = None
+  if world_points is not None:
+    world_point_data = load_world_points(world_points)
+  elif world_correspondences is not None:
+    world_point_data = load_world_correspondences(
+      world_correspondences, all_frame_names
+    )
+  requested_points = list(points or [])
+  if world_point_data is not None:
+    available_points = list(world_point_data["points"])
+    if world_point_data.get("work_items"):
+      if requested_points or frame is not None:
+        raise ValueError(
+          "--points/--frame are not used with --world_correspondences"
+        )
+    elif requested_points:
+      missing = set(requested_points) - set(available_points)
+      if missing:
+        raise ValueError(
+          "requested points missing from world points: {}".format(
+            ", ".join(sorted(missing))
+          )
+        )
+    elif frame is not None:
+      if len(available_points) == 1 and frame in world_point_data["points"]:
+        requested_points = []
+      else:
+        requested_points = available_points
+    elif set(frame_names) == set(available_points):
+      requested_points = []
+    elif not world_point_data.get("work_items"):
+      raise ValueError(
+        "world point names do not match image frames; use --frame for one "
+        "shared image or --points to map named points"
+      )
   annotations = load_existing_observations(output)
-  automatic_points = frame is not None and not list(points or [])
-  if automatic_points:
+  automatic_points = (
+    world_point_data is None and frame is not None and not requested_points
+  )
+  if world_point_data is not None and world_point_data.get("work_items"):
+    work_items = world_point_data["work_items"]
+    index = 0
+  elif automatic_points:
     work_items, index = automatic_point_work_items(
       frame_names[0], annotations
     )
   else:
-    work_items = observation_work_items(frame_names, points)
+    work_items = observation_work_items(frame_names, requested_points)
     index = 0
   observation_names = [item["frame"] for item in work_items]
+  observation_point_names = {
+    item["frame"]: item.get("point_name", item["frame"])
+    for item in work_items
+  }
+  if world_point_data is not None:
+    missing = (
+      set(observation_point_names.values()) -
+      set(world_point_data["points"])
+    )
+    if missing:
+      raise ValueError(
+        "observation names missing from world points: {}".format(
+          ", ".join(sorted(missing))
+        )
+      )
   source_frames = {
     item["frame"]: item["source_frame"] for item in work_items
   }
+  observation_metadata = {
+    item["frame"]: {
+      key: item[key] for key in ("capture", "marker_id", "occurrence")
+      if item.get(key) is not None
+    }
+    for item in work_items
+  }
   minimum_cameras = min(2, len(camera_images.cameras))
+  writer = (
+    write_world_observations
+    if world_point_data is not None else write_observations
+  )
+
+  def save_annotations():
+    arguments = (
+      output, image_path, camera_images.cameras,
+      observation_names, annotations
+    )
+    if world_point_data is not None:
+      return writer(
+        *arguments, world_point_data, minimum_cameras, source_frames,
+        observation_point_names, observation_metadata
+      )
+    return writer(
+      *arguments, minimum_cameras, source_frames
+    )
   if start_frame is not None:
     matching = [
       item_index for item_index, item in enumerate(work_items)
@@ -610,11 +888,7 @@ def annotate_observations(
             camera: list(point)
             for camera, point in state["observations"].items()
           }
-          write_observations(
-            output, image_path, camera_images.cameras,
-            observation_names, annotations, minimum_cameras,
-            source_frames
-          )
+          save_annotations()
           if automatic_points and index == len(work_items) - 1:
             append_automatic_point(work_items)
             next_item = work_items[-1]
@@ -638,28 +912,16 @@ def annotate_observations(
           state["active_camera"] = None
         if key in (ord("x"), ord("X")):
           annotations.pop(observation_name, None)
-          write_observations(
-            output, image_path, camera_images.cameras,
-            observation_names, annotations, minimum_cameras,
-            source_frames
-          )
+          save_annotations()
           index += 1
           break
         if key in (
             ord("e"), ord("E"), ord("q"), ord("Q"), 27):
-          return write_observations(
-            output, image_path, camera_images.cameras,
-            observation_names, annotations, minimum_cameras,
-            source_frames
-          )
+          return save_annotations()
   finally:
     cv2.destroyWindow(window_name)
 
-  return write_observations(
-    output, image_path, camera_images.cameras,
-    observation_names, annotations, minimum_cameras,
-    source_frames
-  )
+  return save_annotations()
 
 
 @dataclass
@@ -667,7 +929,10 @@ class Observe:
   """Manually click synchronized target pixels in multiple cameras.
 
   With --frame and no --points, names are generated as P01, P02, ... until
-  E, Q or Esc is used.
+  E, Q or Esc is used. With --world_points, named 3D coordinates are attached
+  to the clicks. With --world_correspondences, captures and world coordinates
+  come from an existing world_markers file while marker centers are clicked
+  manually. Omitting both options preserves the original output format.
   """
 
   image_path: str
@@ -679,6 +944,8 @@ class Observe:
   start_frame: Optional[str] = None
   frame: Optional[str] = None
   points: List[str] = list_field()
+  world_points: Optional[str] = None
+  world_correspondences: Optional[str] = None
 
   def execute(self):
     result, destination = annotate_observations(
@@ -690,11 +957,25 @@ class Observe:
       self.tile_width,
       self.start_frame,
       self.frame,
-      self.points
+      self.points,
+      self.world_points,
+      self.world_correspondences
+    )
+    count = (
+      len(result["observations"])
+      if (
+        self.world_points is not None or
+        self.world_correspondences is not None
+      ) else len(result["frames"])
     )
     print(
-      "Saved {} annotated frames to {}".format(
-        len(result["frames"]), destination
+      "Saved {} annotated {} to {}".format(
+        count,
+        "world observations" if (
+          self.world_points is not None or
+          self.world_correspondences is not None
+        ) else "frames",
+        destination
       )
     )
 

@@ -10,13 +10,17 @@ from multical.app.observe import (
   annotate_observations,
   compose_mosaic,
   compose_point_sidebar,
+  load_world_correspondences,
+  load_world_points,
   load_existing_observations,
   map_mosaic_click,
   nudge_observation,
   observation_work_items,
   sidebar_hit_test,
-  write_observations
+  write_observations,
+  write_world_observations
 )
+from multical.app.worldmulti import load_multicamera_correspondences
 
 
 def test_mosaic_click_maps_to_original_pixels():
@@ -132,6 +136,160 @@ def test_single_camera_observation_can_be_saved_for_click_testing():
       "frame": "test.jpg",
       "observations": {"C1": [12.5, 34.5]}
     }]
+
+
+def test_world_observation_yaml_is_worldmulti_compatible_and_resumable():
+  with TemporaryDirectory() as temporary:
+    root = Path(temporary)
+    output_path = root / "world_observations.yaml"
+    world_path = root / "world_points.yaml"
+    world_path.write_text(
+      yaml.safe_dump({
+        "coordinate_frame": "world",
+        "world_units": "meters",
+        "points": {
+          "P01": [0.0, 1.0, 2.0],
+          "P02": [1.0, 1.0, 2.0],
+          "P03": [2.0, 1.0, 2.0],
+          "P04": [3.0, 1.0, 2.0]
+        }
+      }),
+      encoding="utf-8"
+    )
+    world_points = {
+      "coordinate_frame": "world",
+      "world_units": "meters",
+      "points": {
+        "P01": [0.0, 1.0, 2.0],
+        "P02": [1.0, 1.0, 2.0],
+        "P03": [2.0, 1.0, 2.0],
+        "P04": [3.0, 1.0, 2.0]
+      },
+      "path": world_path.resolve()
+    }
+    annotations = {
+      point: {
+        "C1": [100.12345 + index, 200.98765],
+        "C2": [110.0 + index, 201.0]
+      }
+      for index, point in enumerate(world_points["points"])
+    }
+
+    output, destination = write_world_observations(
+      output_path,
+      root,
+      ["C1", "C2"],
+      list(world_points["points"]),
+      annotations,
+      world_points
+    )
+
+    assert destination == output_path.resolve()
+    assert len(output["observations"]) == 8
+    assert output["observations"][0] == {
+      "capture": "P01",
+      "camera": "C1",
+      "world_point": [0.0, 1.0, 2.0],
+      "image_point": [100.123, 200.988]
+    }
+    resumed = load_existing_observations(output_path)
+    assert set(resumed) == {"P01", "P02", "P03", "P04"}
+    assert set(resumed["P01"]) == {"C1", "C2"}
+
+    cameras = {
+      "C1": {"K": np.eye(3).tolist(), "dist": [[0, 0, 0, 0, 0]]},
+      "C2": {"K": np.eye(3).tolist(), "dist": [[0, 0, 0, 0, 0]]}
+    }
+    observations, skipped, _, mode = load_multicamera_correspondences(
+      output_path, cameras
+    )
+    assert mode == "manual_points"
+    assert len(observations) == 8
+    assert skipped == []
+
+
+def test_load_world_points_rejects_non_world_coordinates():
+  with TemporaryDirectory() as temporary:
+    path = Path(temporary) / "points.yaml"
+    path.write_text(
+      yaml.safe_dump({
+        "coordinate_frame": "camera",
+        "points": {"P01": [0.0, 1.0, 2.0]}
+      }),
+      encoding="utf-8"
+    )
+    try:
+      load_world_points(path)
+    except ValueError as error:
+      assert "coordinate_frame must be world" in str(error)
+    else:
+      raise AssertionError("non-world coordinates should be rejected")
+
+
+def test_world_correspondences_expand_marker_centers_into_click_items():
+  with TemporaryDirectory() as temporary:
+    path = Path(temporary) / "world_markers.yaml"
+    path.write_text(yaml.safe_dump({
+      "world_units": "meters",
+      "captures": [{
+        "name": "000000",
+        "markers": [
+          {
+            "marker_id": 23,
+            "occurrence": "upper",
+            "world_point": [1.0, 2.0, 1.7]
+          },
+          {
+            "marker_id": 23,
+            "occurrence": "lower",
+            "world_point": [1.0, 2.0, 0.5]
+          }
+        ]
+      }]
+    }), encoding="utf-8")
+
+    result = load_world_correspondences(path, ["000000.jpg"])
+
+    assert list(result["points"]) == [
+      "000000:23:upper", "000000:23:lower"
+    ]
+    assert result["work_items"][0] == {
+      "frame": "000000:23:upper",
+      "source_frame": "000000.jpg",
+      "point_name": "000000:23:upper",
+      "capture": "000000",
+      "marker_id": 23,
+      "occurrence": "upper"
+    }
+
+
+def test_world_observations_map_composite_captures_to_named_points():
+  with TemporaryDirectory() as temporary:
+    root = Path(temporary)
+    world_points = {
+      "coordinate_frame": "world",
+      "world_units": "meters",
+      "points": {"P01": [1.0, 2.0, 3.0]},
+      "path": root / "points.yaml"
+    }
+    capture = "000000.jpg:P01"
+    output, _ = write_world_observations(
+      root / "observations.yaml",
+      root,
+      ["C1", "C2"],
+      [capture],
+      {capture: {"C1": [10.0, 20.0], "C2": [11.0, 21.0]}},
+      world_points,
+      point_names={capture: "P01"}
+    )
+
+    assert {item["capture"] for item in output["observations"]} == {
+      capture
+    }
+    assert all(
+      item["world_point"] == [1.0, 2.0, 3.0]
+      for item in output["observations"]
+    )
 
 
 def test_multiple_named_points_share_one_source_frame():
