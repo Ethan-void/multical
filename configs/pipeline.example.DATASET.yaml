@@ -1,16 +1,14 @@
 variables:
-  dataset: 20260804
-  boards: boards/charuco_1600x1200.yaml
+  dataset: DATASET
+  boards: boards/extrinsic/charuco_1600x1200.yaml
   cameras: &cameras [cam0, cam1, cam2, cam3]
-  output_root: 20260804
+  output_root: DATASET
 
 state_file: "{output_root}/pipeline_state.json"
 
-# 避免 macOS/OpenCV 4.6 的 OpenCL 缓存并发错误。
 env:
   OPENCV_OPENCL_RUNTIME: disabled
 
-# 阶段按照这里的顺序运行。enabled: false 的阶段不会被 all 执行。
 stages:
   intrinsic:
     command: intrinsic
@@ -40,39 +38,6 @@ stages:
       output_path: "{output_root}/extrinsic"
       name: calibration
 
-  validate_intrinsic:
-    command: calibrate
-    group: validation
-    needs: [intrinsic]
-    args:
-      image_path: "{dataset}/test_intrinsic"
-      boards: "{boards}"
-      cameras: [cam0]
-      calibration: "{output_root}/intrinsic/intrinsic.json"
-      fix_intrinsic: true
-      master: cam0
-      loss: soft_l1
-      iter: 1
-      output_path: "{output_root}/test_intrinsic"
-      name: validation_intrinsic
-
-  validate_extrinsic:
-    command: calibrate
-    group: extrinsic_validation
-    needs: [extrinsic]
-    args:
-      image_path: "{dataset}/test_extrinsic"
-      boards: "{boards}"
-      cameras: *cameras
-      calibration: "{output_root}/extrinsic/calibration.json"
-      fix_intrinsic: true
-      fix_camera_poses: true
-      master: cam0
-      loss: soft_l1
-      iter: 3
-      output_path: "{output_root}/test_extrinsic"
-      name: validation_extrinsic
-
   world:
     # 多相机控制点使用 worldmulti；单锚点相机时改成 world。
     command: worldmulti
@@ -86,8 +51,6 @@ stages:
       loss: soft_l1
 
   observe:
-    # 这是交互步骤。已有 measured_observations_multicam.yaml，因此默认关闭。
-    # 需要重新点击像素时，改为 enabled: true，并单独运行 --stage observe。
     enabled: false
     interactive: true
     command: observe
@@ -129,7 +92,6 @@ stages:
       # max_error: 0.20
 
   analyze_intrinsic:
-    # 单独使用时显式选择；不在 all 中重复生成报告。
     enabled: false
     command: analyze
     group: intrinsic_analysis
@@ -138,7 +100,6 @@ stages:
       output: "{output_root}/reports/intrinsic_analysis.xlsx"
 
   analyze_extrinsic:
-    # workspace 可提供逐观测和优化过程等更完整的外参分析。
     enabled: false
     command: analyze
     group: extrinsic_analysis
@@ -156,3 +117,36 @@ stages:
       extrinsic: "{output_root}/extrinsic/calibration.json"
       workspace: "{output_root}/extrinsic/calibration.pkl"
       output: "{output_root}/reports/calibration_analysis.xlsx"
+
+  validate_intrinsic:
+    command: calibrate
+    group: validation
+    needs: [intrinsic]
+    args:
+      image_path: "{dataset}/test_intrinsic"
+      boards: "{boards}"
+      cameras: [cam0]
+      calibration: "{output_root}/intrinsic/intrinsic.json"
+      fix_intrinsic: true
+      master: cam0
+      loss: soft_l1
+      iter: 1
+      output_path: "{output_root}/test_intrinsic"
+      name: validation_intrinsic
+
+  validate_extrinsic:
+    command: calibrate
+    group: extrinsic_validation
+    needs: [extrinsic]
+    args:
+      image_path: "{dataset}/test_extrinsic"
+      boards: "{boards}"
+      cameras: *cameras
+      calibration: "{output_root}/extrinsic/calibration.json"
+      fix_intrinsic: true
+      fix_camera_poses: true
+      master: cam0
+      loss: soft_l1
+      iter: 3
+      output_path: "{output_root}/test_extrinsic"
+      name: validation_extrinsic

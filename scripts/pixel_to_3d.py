@@ -33,14 +33,16 @@ DEFAULT_CAMERA_TXT_FILES = {
   "cam4": "cam4.txt",
   "cam5": "cam5.txt"
 }
+
+
 DEFAULT_TRAJECTORY_DIR = None  # e.g. "/data/20260812/traj_0001"
-DEFAULT_DATASET_DIR = "/Users/ethan/Dev/external/20260812"
+DEFAULT_DATASET_DIR = "/Users/ethan/Dev/tennis-vision/20260812"
 DEFAULT_CAMERA_NAME_MAP = {
   "cam2": "cam4",
   "cam3": "cam5"
 }
 DEFAULT_OUTPUT_TXT = "points_3d.txt"
-DEFAULT_OUTPUT_DIR = "/Users/ethan/Dev/external/20260812/3d_results"
+DEFAULT_OUTPUT_DIR = "/Users/ethan/Dev/tennis-vision/20260812/3d_results"
 DEFAULT_REPROJECTION_THRESHOLD = 1.5
 DEFAULT_MIN_RAY_ANGLE_DEG = 8.0
 DEFAULT_REFINE = True

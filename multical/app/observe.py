@@ -22,6 +22,9 @@ MAGNIFIER_RADIUS_PX = 24
 SIDEBAR_WIDTH = 190
 SIDEBAR_HEADER_HEIGHT = 44
 SIDEBAR_ROW_HEIGHT = 30
+MIN_VIEW_ZOOM = 1.0
+MAX_VIEW_ZOOM = 6.0
+ZOOM_STEP = 1.25
 
 
 def compose_mosaic(
@@ -243,6 +246,91 @@ def sidebar_hit_test(hitboxes, x, y):
         hitbox["y0"] <= y <= hitbox["y1"]):
       return hitbox["index"]
   return None
+
+
+def clamp_mosaic_view(view, width, height):
+  """Keep a zoomed mosaic viewport inside the rendered canvas."""
+  view["zoom"] = float(np.clip(
+    view.get("zoom", 1.0), MIN_VIEW_ZOOM, MAX_VIEW_ZOOM
+  ))
+  view["offset_x"] = float(np.clip(
+    view.get("offset_x", 0.0),
+    0.0,
+    max(0.0, width * view["zoom"] - width)
+  ))
+  view["offset_y"] = float(np.clip(
+    view.get("offset_y", 0.0),
+    0.0,
+    max(0.0, height * view["zoom"] - height)
+  ))
+  return view
+
+
+def zoom_mosaic_view(view, x, y, wheel_delta, width, height):
+  """Zoom around one viewport pixel while preserving its mosaic position."""
+  if wheel_delta == 0:
+    return False
+  old_zoom = float(view.get("zoom", 1.0))
+  old_offset_x = float(view.get("offset_x", 0.0))
+  old_offset_y = float(view.get("offset_y", 0.0))
+  factor = ZOOM_STEP if wheel_delta > 0 else 1.0 / ZOOM_STEP
+  new_zoom = float(np.clip(
+    old_zoom * factor, MIN_VIEW_ZOOM, MAX_VIEW_ZOOM
+  ))
+  if new_zoom == old_zoom:
+    return False
+  mosaic_x = (float(x) + old_offset_x) / old_zoom
+  mosaic_y = (float(y) + old_offset_y) / old_zoom
+  view["zoom"] = new_zoom
+  view["offset_x"] = mosaic_x * new_zoom - float(x)
+  view["offset_y"] = mosaic_y * new_zoom - float(y)
+  clamp_mosaic_view(view, width, height)
+  return True
+
+
+def pan_mosaic_view(view, delta_x, delta_y, width, height):
+  """Pan the mosaic by a screen-space drag delta."""
+  view["offset_x"] = view.get("offset_x", 0.0) - float(delta_x)
+  view["offset_y"] = view.get("offset_y", 0.0) - float(delta_y)
+  clamp_mosaic_view(view, width, height)
+
+
+def map_viewport_point(view, x, y):
+  """Map one viewport coordinate back into the unzoomed mosaic."""
+  zoom = float(view.get("zoom", 1.0))
+  return (
+    (float(x) + float(view.get("offset_x", 0.0))) / zoom,
+    (float(y) + float(view.get("offset_y", 0.0))) / zoom
+  )
+
+
+def render_mosaic_view(canvas, view):
+  """Render a fixed-size zoom/pan viewport for a mosaic canvas."""
+  height, width = canvas.shape[:2]
+  clamp_mosaic_view(view, width, height)
+  if (
+      view["zoom"] == 1.0 and
+      view["offset_x"] == 0.0 and
+      view["offset_y"] == 0.0):
+    return canvas.copy()
+  transform = np.asarray([
+    [view["zoom"], 0.0, -view["offset_x"]],
+    [0.0, view["zoom"], -view["offset_y"]]
+  ], dtype=np.float32)
+  return cv2.warpAffine(
+    canvas,
+    transform,
+    (width, height),
+    flags=cv2.INTER_LINEAR,
+    borderMode=cv2.BORDER_CONSTANT,
+    borderValue=(35, 35, 35)
+  )
+
+
+def mouse_wheel_delta(flags):
+  """Decode OpenCV's signed mouse-wheel delta from callback flags."""
+  value = (int(flags) >> 16) & 0xffff
+  return value - 0x10000 if value & 0x8000 else value
 
 
 def map_mosaic_click(placements, x, y):
@@ -770,10 +858,48 @@ def annotate_observations(
     "sidebar_hitboxes": [],
     "observations": {},
     "active_camera": None,
-    "jump_index": None
+    "jump_index": None,
+    "mosaic_width": 0,
+    "mosaic_height": 0,
+    "view": {"zoom": 1.0, "offset_x": 0.0, "offset_y": 0.0},
+    "panning": False,
+    "pan_at": None
   }
 
-  def mouse_callback(event, x, y, _flags, _parameter):
+  def mouse_callback(event, x, y, flags, _parameter):
+    width = state["mosaic_width"]
+    height = state["mosaic_height"]
+    wheel_events = (
+      cv2.EVENT_MOUSEWHEEL,
+      getattr(cv2, "EVENT_MOUSEHWHEEL", -1)
+    )
+    if event in wheel_events and x < width:
+      zoom_mosaic_view(
+        state["view"], x, y, mouse_wheel_delta(flags), width, height
+      )
+      return
+    starts_pan = (
+      event == cv2.EVENT_MBUTTONDOWN or
+      (
+        event == cv2.EVENT_LBUTTONDOWN and
+        flags & cv2.EVENT_FLAG_SHIFTKEY
+      )
+    )
+    if starts_pan and x < width:
+      state["panning"] = True
+      state["pan_at"] = (x, y)
+      return
+    if event == cv2.EVENT_MOUSEMOVE and state["panning"]:
+      previous_x, previous_y = state["pan_at"]
+      pan_mosaic_view(
+        state["view"], x - previous_x, y - previous_y, width, height
+      )
+      state["pan_at"] = (x, y)
+      return
+    if event in (cv2.EVENT_MBUTTONUP, cv2.EVENT_LBUTTONUP):
+      state["panning"] = False
+      state["pan_at"] = None
+      return
     if event == cv2.EVENT_LBUTTONDOWN:
       jump_index = sidebar_hit_test(
         state["sidebar_hitboxes"], x, y
@@ -781,7 +907,12 @@ def annotate_observations(
       if jump_index is not None:
         state["jump_index"] = jump_index
         return
-    mapped = map_mosaic_click(state["placements"], x, y)
+    if x >= width:
+      return
+    mosaic_x, mosaic_y = map_viewport_point(state["view"], x, y)
+    mapped = map_mosaic_click(
+      state["placements"], mosaic_x, mosaic_y
+    )
     if mapped is None:
       return
     camera, point = mapped
@@ -793,8 +924,8 @@ def annotate_observations(
       state["active_camera"] = camera
 
   try:
-    # Keep a 1:1 relationship between mosaic pixels and mouse coordinates.
-    # Arbitrary window resizing would make small-target clicks inaccurate.
+    # Keep a 1:1 relationship between window and viewport pixels. The explicit
+    # view transform below maps zoomed clicks back to mosaic/source pixels.
     cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
     cv2.setMouseCallback(window_name, mouse_callback)
   except cv2.error as error:
@@ -833,6 +964,8 @@ def annotate_observations(
           tile_width
         )
         state["placements"] = placements
+        state["mosaic_height"], state["mosaic_width"] = canvas.shape[:2]
+        canvas = render_mosaic_view(canvas, state["view"])
         canvas, sidebar_hitboxes = compose_point_sidebar(
           canvas,
           observation_names,
@@ -843,6 +976,8 @@ def annotate_observations(
         instruction = (
           "{}/{} image={} point={} | select>={} | "
           "left:set/refine right:remove "
+          "wheel/+/-:zoom middle/shift-drag:pan Z:view-reset "
+          "zoom={:.0f}% | "
           "arrows:1px | Enter:save N:skip B:back R:reset X:delete "
           "E/Q/Esc:quit"
         ).format(
@@ -850,7 +985,8 @@ def annotate_observations(
           "auto" if automatic_points else len(work_items),
           source_frame,
           item.get("point_name", observation_name),
-          minimum_cameras
+          minimum_cameras,
+          state["view"]["zoom"] * 100.0
         )
         cv2.putText(
           canvas, instruction,
@@ -864,6 +1000,16 @@ def annotate_observations(
           index = state["jump_index"]
           state["jump_index"] = None
           break
+        if key in (ord("+"), ord("="), ord("-"), ord("_")):
+          zoom_mosaic_view(
+            state["view"],
+            state["mosaic_width"] / 2.0,
+            state["mosaic_height"] / 2.0,
+            1 if key in (ord("+"), ord("=")) else -1,
+            state["mosaic_width"],
+            state["mosaic_height"]
+          )
+          continue
         arrow_delta = None
         if key in (81, 2424832, 63234, 65361, ord("a"), ord("A")):
           arrow_delta = (-1.0, 0.0)
@@ -880,6 +1026,11 @@ def annotate_observations(
             state["placements"],
             *arrow_delta
           )
+          continue
+        if key in (ord("z"), ord("Z"), ord("0")):
+          state["view"] = {
+            "zoom": 1.0, "offset_x": 0.0, "offset_y": 0.0
+          }
           continue
         if key in (10, 13, 32):
           if len(state["observations"]) < minimum_cameras:

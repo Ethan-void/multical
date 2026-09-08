@@ -264,6 +264,291 @@ function writeIssueSheet(workbook, report) {
   return sheet;
 }
 
+function columnName(index) {
+  let value = index + 1;
+  let result = "";
+  while (value > 0) {
+    value -= 1;
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26);
+  }
+  return result;
+}
+
+function cameraNames(report) {
+  const names = new Set();
+  Object.keys(report.camera_groups || {}).forEach((name) => names.add(name));
+  (report.points || []).forEach((point) => {
+    (point.cameras_used || []).forEach((name) => names.add(name));
+    (point.cameras_rejected || []).forEach((name) => names.add(name));
+    Object.keys(point.reprojection_errors_px || {}).forEach(
+      (name) => names.add(name)
+    );
+  });
+  return [...names].sort((first, second) => first.localeCompare(
+    second, undefined, { numeric: true, sensitivity: "base" }
+  ));
+}
+
+function writeCameraParticipationSheet(workbook, report) {
+  const sheet = workbook.worksheets.getItem("相机参与明细");
+  const cameras = cameraNames(report);
+  const points = report.points || [];
+  const cameraGroups = report.camera_groups || {};
+  const headers = [
+    "点", "观测相机数", "参与相机数", "剔除相机数", "剔除率",
+    "观测相机组", "参与相机组", "具备跨组条件", "跨组参与",
+    "参与相机", ...cameras,
+  ];
+  const rows = points.map((point) => {
+    const used = point.cameras_used || [];
+    const rejected = point.cameras_rejected || [];
+    const observedCameras = [...new Set([
+      ...used, ...rejected,
+    ])];
+    const observed = point.camera_observation_count ?? observedCameras.length;
+    const errors = point.reprojection_errors_px || {};
+    const observedGroups = [...new Set(observedCameras
+      .map((camera) => cameraGroups[camera])
+      .filter(Boolean))].sort();
+    const usedGroups = [...new Set(used
+      .map((camera) => cameraGroups[camera])
+      .filter(Boolean))].sort();
+    const crossGroupEligible = observedGroups.length >= 2;
+    const crossGroupParticipating = usedGroups.length >= 2;
+    return [
+      point.frame,
+      observed,
+      used.length,
+      rejected.length,
+      observed ? rejected.length / observed : null,
+      observedGroups.length ? observedGroups.join(", ") : "—",
+      usedGroups.length ? usedGroups.join(", ") : "—",
+      crossGroupEligible ? "是" : "否",
+      crossGroupParticipating ? "是" : "否",
+      used.join(", "),
+      ...cameras.map((camera) => errors[camera] ?? "—"),
+    ];
+  });
+  const tableHeaderRow = 6;
+  const firstDataRow = tableHeaderRow + 1;
+  const lastDataRow = Math.max(firstDataRow, tableHeaderRow + rows.length);
+  const columnCount = headers.length;
+  const lastColumn = columnName(columnCount - 1);
+
+  sheet.mergeCells(`A1:${lastColumn}1`);
+  sheet.getRange("A1").values = [["跨组参与汇总"]];
+  styleSection(sheet.getRange(`A1:${lastColumn}1`));
+  sheet.getRange("A2:C2").values = [[
+    "具备跨组观测条件点数", "实际跨组参与点数", "跨组参与率",
+  ]];
+  styleHeader(sheet.getRange("A2:C2"));
+  const eligibleCount = rows.filter((row) => row[7] === "是").length;
+  const participatingCount = rows.filter(
+    (row) => row[7] === "是" && row[8] === "是"
+  ).length;
+  sheet.getRange("A3:C3").values = [[
+    eligibleCount,
+    participatingCount,
+    eligibleCount ? participatingCount / eligibleCount : null,
+  ]];
+  sheet.getRange("A3:B3").format.numberFormat = "0";
+  sheet.getRange("C3").format.numberFormat = "0.0%";
+  sheet.mergeCells(`A4:${lastColumn}4`);
+  sheet.getRange("A4").values = [[
+    "定义：跨组参与率 = 实际跨组参与点数 ÷ 具备跨组观测条件点数",
+  ]];
+  sheet.getRange(`A4:${lastColumn}4`).format = {
+    font: { italic: true, color: "#666666" },
+    verticalAlignment: "center",
+  };
+
+  sheet.getRangeByIndexes(
+    tableHeaderRow - 1, 0, 1, columnCount
+  ).values = [headers];
+  if (rows.length) {
+    sheet.getRangeByIndexes(
+      firstDataRow - 1, 0, rows.length, columnCount
+    ).values = rows;
+  }
+  styleHeader(sheet.getRange(`A${tableHeaderRow}:${lastColumn}${tableHeaderRow}`));
+  setAllBorders(sheet.getRange(`A2:C3`));
+  setAllBorders(sheet.getRange(
+    `A${tableHeaderRow}:${lastColumn}${lastDataRow}`
+  ));
+  if (rows.length) {
+    sheet.getRange(`B${firstDataRow}:D${lastDataRow}`).format.numberFormat = "0";
+    sheet.getRange(`E${firstDataRow}:E${lastDataRow}`).format.numberFormat = "0.0%";
+  }
+  if (cameras.length && rows.length) {
+    const firstCameraColumnIndex = 10;
+    const firstCameraColumn = columnName(firstCameraColumnIndex);
+    sheet.getRange(
+      `${firstCameraColumn}${firstDataRow}:${lastColumn}${lastDataRow}`
+    ).format = {
+      horizontalAlignment: "center",
+      numberFormat: "0.0000",
+    };
+    points.forEach((point, pointIndex) => {
+      const rejected = new Set(point.cameras_rejected || []);
+      cameras.forEach((camera, cameraIndex) => {
+        if (!rejected.has(camera)) return;
+        const cell = sheet.getCell(
+          pointIndex + firstDataRow - 1,
+          cameraIndex + firstCameraColumnIndex
+        );
+        const error = (point.reprojection_errors_px || {})[camera];
+        if (error === undefined || error === null) {
+          cell.values = [["剔除"]];
+        } else {
+          cell.format.numberFormat = '0.00"×"';
+        }
+        cell.format.font = { color: "#C00000" };
+      });
+    });
+  }
+  sheet.getRange(`A1:${lastColumn}${lastDataRow}`).format.font = {
+    name: "Aptos", size: 10,
+  };
+  styleSection(sheet.getRange(`A1:${lastColumn}1`));
+  styleHeader(sheet.getRange("A2:C2"));
+  styleHeader(sheet.getRange(`A${tableHeaderRow}:${lastColumn}${tableHeaderRow}`));
+  sheet.getRange("A:A").format.columnWidth = 12;
+  sheet.getRange("B:E").format.columnWidth = 11;
+  sheet.getRange("F:G").format.columnWidth = 24;
+  sheet.getRange("H:I").format.columnWidth = 16;
+  sheet.getRange("J:J").format.columnWidth = 32;
+  if (cameras.length) {
+    sheet.getRange(`${columnName(10)}:${lastColumn}`).format.columnWidth = 13;
+  }
+  sheet.freezePanes.freezeRows(tableHeaderRow);
+  sheet.freezePanes.freezeColumns(1);
+  return sheet;
+}
+
+function yesNo(value) {
+  if (value === true) return "是";
+  if (value === false) return "否";
+  return "未提供";
+}
+
+function writeBundleAdjustmentSheet(workbook, report) {
+  const sheet = workbook.worksheets.getItem("联合BA优化收敛情况");
+  const bundle = report.bundle_adjustment || {};
+  const joint = bundle.joint || {};
+  const groups = bundle.groups || [];
+
+  sheet.mergeCells("A1:I1");
+  sheet.getRange("A1").values = [["联合 BA 优化收敛情况"]];
+  styleTitle(sheet.getRange("A1:I1"));
+
+  sheet.mergeCells("A3:I3");
+  sheet.getRange("A3").values = [["总体状态"]];
+  styleSection(sheet.getRange("A3:I3"));
+  sheet.getRange("A4:B10").values = [
+    ["联合优化收敛", yesNo(joint.optimization_success)],
+    ["预优化成功", yesNo(joint.warmup_success)],
+    ["优化终止原因", joint.optimization_message || "未提供"],
+    ["优化方法", bundle.method || "未提供"],
+    ["损失函数", joint.loss || "未提供"],
+    ["硬剔除复检", yesNo(joint.hard_outlier_rejection_applied)],
+    ["重投影门限（px）", joint.ransac_threshold_px ?? "未提供"],
+  ];
+  setAllBorders(sheet.getRange("A4:B10"));
+  sheet.getRange("A4:A10").format.font = { bold: true };
+  sheet.getRange("B4").format = {
+    fill: joint.optimization_success === true ? "#E2F0D9" : "#FCE4D6",
+    font: {
+      bold: true,
+      color: joint.optimization_success === true ? "#006100" : "#9C0006",
+    },
+    horizontalAlignment: "center",
+  };
+  if (typeof joint.ransac_threshold_px === "number") {
+    sheet.getRange("B10").format.numberFormat = "0.000";
+  }
+
+  sheet.mergeCells("A12:I12");
+  sheet.getRange("A12").values = [["优化前后重投影误差"]];
+  styleSection(sheet.getRange("A12:I12"));
+  sheet.getRange("A13:H13").values = [[
+    "数据类型", "阶段", "数量", "均值（px）", "RMS（px）",
+    "中位数（px）", "P95（px）", "最大值（px）",
+  ]];
+  styleHeader(sheet.getRange("A13:H13"));
+  const metricRows = [
+    ["Charuco", "优化前", joint.initial_charuco],
+    ["Charuco", "优化后", joint.final_charuco],
+    ["世界控制点", "优化前（全部）", joint.initial_world],
+    ["世界控制点", "优化后（全部）", joint.final_world_all],
+    ["世界控制点", "优化后（内点）", joint.final_world_inlier],
+  ].map(([type, stage, values]) => [
+    type,
+    stage,
+    values?.count ?? "—",
+    values?.mean ?? "—",
+    values?.RMS ?? "—",
+    values?.median ?? "—",
+    values?.p95 ?? "—",
+    values?.max ?? "—",
+  ]);
+  sheet.getRange("A14:H18").values = metricRows;
+  setAllBorders(sheet.getRange("A14:H18"));
+  sheet.getRange("C14:C18").format.numberFormat = "#,##0";
+  sheet.getRange("D14:H18").format.numberFormat = "0.000000";
+
+  sheet.mergeCells("A20:I20");
+  sheet.getRange("A20").values = [["分组优化结果"]];
+  styleSection(sheet.getRange("A20:I20"));
+  sheet.getRange("A21:I21").values = [[
+    "相机组", "相机", "优化成功", "观测数", "内点数", "内点率",
+    "内点 RMS（px）", "全部点 RMS（px）", "最大误差（px）",
+  ]];
+  styleHeader(sheet.getRange("A21:I21"));
+  if (groups.length) {
+    const groupRows = groups.map((group) => [
+      group.name || "—",
+      (group.cameras || []).join(", ") || "—",
+      yesNo(group.optimization_success),
+      group.observation_count ?? "—",
+      group.inlier_count ?? "—",
+      null,
+      group.reprojection_rms_px ?? "—",
+      group.all_points_rms_px ?? "—",
+      group.all_points_max_px ?? "—",
+    ]);
+    const lastRow = 21 + groupRows.length;
+    sheet.getRange(`A22:I${lastRow}`).values = groupRows;
+    sheet.getRange(`F22:F${lastRow}`).formulas = groups.map(
+      (_, index) => {
+        const row = 22 + index;
+        return [`=IF(D${row}=0,"",E${row}/D${row})`];
+      }
+    );
+    setAllBorders(sheet.getRange(`A22:I${lastRow}`));
+    sheet.getRange(`D22:E${lastRow}`).format.numberFormat = "#,##0";
+    sheet.getRange(`F22:F${lastRow}`).format.numberFormat = "0.0%";
+    sheet.getRange(`G22:I${lastRow}`).format.numberFormat = "0.000000";
+  } else {
+    sheet.mergeCells("A22:I22");
+    sheet.getRange("A22").values = [["未提供分组优化数据"]];
+  }
+
+  sheet.getRange("A1:I24").format.font = { name: "Aptos", size: 10 };
+  styleTitle(sheet.getRange("A1:I1"));
+  styleSection(sheet.getRange("A3:I3"));
+  styleSection(sheet.getRange("A12:I12"));
+  styleSection(sheet.getRange("A20:I20"));
+  styleHeader(sheet.getRange("A13:H13"));
+  styleHeader(sheet.getRange("A21:I21"));
+  sheet.getRange("A:A").format.columnWidth = 22;
+  sheet.getRange("B:B").format.columnWidth = 48;
+  sheet.getRange("C:C").format.columnWidth = 15;
+  sheet.getRange("D:I").format.columnWidth = 18;
+  sheet.freezePanes.freezeRows(3);
+  return sheet;
+}
+
 async function main() {
   if (process.argv.length < 4) {
     throw new Error(
@@ -278,10 +563,14 @@ async function main() {
   const workbook = Workbook.create();
   workbook.worksheets.add("验收汇总");
   workbook.worksheets.add("逐点误差");
+  workbook.worksheets.add("相机参与明细");
   workbook.worksheets.add("异常与缺失");
+  workbook.worksheets.add("联合BA优化收敛情况");
   writeSummarySheet(workbook, report);
   writePointSheet(workbook, report);
+  writeCameraParticipationSheet(workbook, report);
   writeIssueSheet(workbook, report);
+  writeBundleAdjustmentSheet(workbook, report);
 
   const errors = workbook.inspect({
     kind: "match",
@@ -295,7 +584,10 @@ async function main() {
 
   if (previewDir) {
     fs.mkdirSync(previewDir, { recursive: true });
-    for (const sheetName of ["验收汇总", "逐点误差", "异常与缺失"]) {
+    for (const sheetName of [
+      "验收汇总", "逐点误差", "相机参与明细", "异常与缺失",
+      "联合BA优化收敛情况",
+    ]) {
       const render = await workbook.render({
         sheetName, autoCrop: "all", scale: 1, format: "png",
       });

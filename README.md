@@ -22,6 +22,99 @@ usage: multical [-h] {calibrate,intrinsic,boards,show} ...
 
 For command line parameters, check sub-command help e.g. `multical calibrate --help`
 
+### Initialize a calibration experiment
+
+Create the complete experiment directory tree and a ready-to-edit worldgroups
+pipeline configuration with one command:
+
+```bash
+# Edit dataset and groups in pipeline.init.yaml, then:
+./pipeline init
+```
+
+This creates `DATASET/intrinsic`, `DATASET/extrinsic`,
+`DATASET/world/world_images`, `DATASET/observe/measured_points`, and
+`configs/pipeline.worldgroups.DATASET.yaml`. The generated YAML contains the
+absolute dataset path and uses the six-camera worldgroups example by default.
+The generated stages, calibration paths, world-marker paths, and group names
+follow the supplied cameras and groups. `boards` defaults to
+`boards/charuco_1600x1200.yaml`; override it with `--boards`. To start from
+another configuration, pass `--template path/to/template.yaml`. Re-running
+the command safely fills in missing directories without replacing an edited
+YAML; pass `--force` only when the YAML should be regenerated.
+Initialization also updates the root `pipeline` launcher's default `CONFIG`
+to the generated YAML, so subsequent commands can use `./pipeline stage ...`
+without repeating `--config`.
+
+Pipeline stages using `command: intrinsic` or `command: worldgroupba` also
+copy their resulting JSON to `outputs/<dataset name>/` in the repository
+after successful execution, retaining the original filename. The dataset
+name is the last component of `variables.dataset` (or the output folder's
+parent when no dataset is configured). For example, dataset `20260901`
+produces `outputs/20260901/intrinsic.json` and
+`outputs/20260901/world_extrinsic.json`. Running with `--resume` also refreshes
+these copies when computation is skipped; `--dry-run` only displays the paths.
+For `worldgroupba`, the pipeline also generates
+`outputs/<dataset name>/<output JSON stem>.png`, such as `world_extrinsic.png`.
+This tennis-court top view shows calibrated camera XYZ positions and the
+optical axes projected onto XY, with the left baseline center as the origin
+and +Y upward (the same convention as the worldpoints editor). It depicts
+calibration estimates, not independently measured ground truth. Only cameras
+present in the JSON are drawn. Resume regenerates the image as well.
+
+`--config` also accepts a unique filename keyword. For example,
+`./pipeline --config 0901 stage intrinsic` searches `configs/*.yaml` for a
+single filename containing `0901`. Ambiguous matches are listed without
+running the pipeline.
+
+Use `./pipeline use 0901` (or pass a full config path) to make the uniquely
+matched file the launcher's persistent default `CONFIG`. This command only
+switches configuration and does not run pipeline stages.
+
+### Interactive world-coordinate editor
+
+Use the tennis-court editor to click world coordinates and generate the YAML
+files used by world anchoring and 3D evaluation. The coordinate origin is the
+centre of one baseline: X runs down the 23.77 m court, Y runs across it, and Z
+points upward. The default interface is a local web app and opens in your
+browser; all images and YAML files remain on the local machine. Use
+`--ui desktop` to launch the legacy Matplotlib interface.
+
+```bash
+# Variable-height validation points. Click XY in the top view, enter Z in the
+# coordinate field, then press Add/Update. Only the button commits the point.
+multical worldpoints --mode measured --output measured_world_points.yaml
+
+# Use an existing observe result as the clickable P01/P02/... work list.
+# The observe YAML and its source images are read-only.
+multical worldpoints --mode measured \
+  --observe observe/measured_observations.yaml \
+  --output measured_world_points.yaml
+
+# Fixed-height marker centres. Each top-view click creates one capture with
+# both marker definitions at the selected XY position.
+multical worldpoints --mode markers \
+  --image_path DATASET/world/world_images \
+  --marker_ids 23,23 \
+  --marker_heights 1.700,0.500 \
+  --marker_occurrences upper,lower \
+  --output world_markers.yaml
+```
+
+Marker mode builds its capture list from the images. Output names ending in
+`_01.yaml` select cam0/cam1, `_45.yaml` selects cam4/cam5, and an unsuffixed
+`world_markers.yaml` uses every camera directory under `world_images`.
+
+Points are saved after every add, update, undo, or clear action. The orange
+points in the rotatable 3D view are a spatial preview; the orthographic top
+view is used for unambiguous XY selection; enter Z in the coordinate field.
+Marker IDs, their aligned fixed heights, and optional `upper,lower`
+occurrences can also be changed in the editor before clicking. Right-click an
+existing point in the top view to select it, then edit its coordinate fields.
+Observe mode is detected automatically: records sharing one `source_frame`
+are presented as single-image/multiple-point Pxx items, while records with
+distinct source frames are presented as multiple-image/single-point frames.
+
 ### Input formats
 
 
@@ -288,3 +381,27 @@ oliver.batchelor@canterbury.ac.nz
 
 Tasnim Tabassum Nova
 @TabassumNova
+
+
+### worldpoints 场地选择
+
+在 `configs/pipeline.init.yaml` 中设置 `court: tennis`（网球场）或
+`court: badminton`（羽毛球场），然后执行 `./pipeline init`。
+省略 `court` 时默认使用网球场。生成的所有 `worldpoints_marker_*` 和
+`worldpoints_measured_single` 步骤都通过 `court: '{court}'` 引用场地配置，
+网页和桌面编辑器使用同一套场地线条与尺寸；网页的刻度和吸附点同步切换。
+坐标原点保持在近端底线中心，X 沿场地长度方向，Y 沿宽度方向，Z 向上，单位为米。
+
+已有实验配置不会被 `init` 自动覆盖。可直接在已有配置的 `variables` 中增加
+`court: badminton`，并在各 `worldpoints` 步骤的 `args` 中增加
+`court: '{court}'`；也可在确认要重新生成实验配置后运行 `./pipeline init --force`。
+单独启动编辑器时使用 `python -m multical.app.worldpoints --court badminton`。
+羽毛球场参考 [BWF 场地规则](https://worldbadminton.com/rules/)，
+长 13.4 m，双打宽 6.1 m，单打宽 5.18 m；前发球线距网 1.98 m，
+双打后发球线距底线 0.76 m。场地选择不会换算已有 YAML 中的坐标。
+
+
+自定义固定吸附点统一放在 `multical/config/court_snap_anchors.yaml` 中：
+`tennis` 为网球场，`badminton` 为羽毛球场，每行使用 `[X, Y]`，单位米。
+直接增删改对应列表并重启 worldpoints 即可；`court` 自动选择对应列表。
+原点、场地线交点等仍自动生成，无须重复填写。固定点不依赖 marker YAML。

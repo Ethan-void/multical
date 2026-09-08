@@ -1,0 +1,12 @@
+# Source: 20260811/world/world_markers_01.yaml and world_markers_45.yaml.
+# Heights refer to marker centers above the ground, in meters.
+marker_family: 6X6_250
+world_units: meters
+
+markers:
+  - marker_id: 23
+    occurrence: upper
+    height: 1.700
+  - marker_id: 23
+    occurrence: lower
+    height: 0.500

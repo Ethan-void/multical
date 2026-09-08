@@ -12,15 +12,45 @@ def test_evaluate3d_matches_frames_converts_units_and_checks_thresholds():
   with TemporaryDirectory() as temporary:
     root = Path(temporary)
     reconstruction_path = root / "triangulation.json"
+    world_extrinsics_path = root / "world_extrinsic.json"
+    world_extrinsics_path.write_text(json.dumps({
+      "method": "grouped_constrained_bundle_adjustment",
+      "joint_bundle_adjustment": {
+        "optimization_success": True,
+        "warmup_success": True,
+        "optimization_message": "test convergence",
+        "initial_world": {"count": 3, "RMS": 2.0},
+        "final_world_all": {"count": 3, "RMS": 1.0}
+      },
+      "groups": [
+        {
+          "name": "group12",
+          "cameras": ["C1", "C2"],
+          "joint": {
+            "optimization_success": True,
+            "observation_count": 3,
+            "inlier_count": 2
+          }
+        },
+        {"name": "group3", "cameras": ["C3"]}
+      ]
+    }), encoding="utf-8")
     reconstruction_path.write_text(json.dumps({
       "coordinate_frame": "world",
       "world_units": "meters",
+      "world_extrinsics": str(world_extrinsics_path),
       "frames": [
         {
           "frame": "P01",
           "status": "ok",
           "point_world": [1.01, 1.98, 3.02],
           "cameras_used": ["C1", "C2"],
+          "cameras_rejected": ["C3"],
+          "reprojection_errors_px": {
+            "C1": 0.2,
+            "C2": 0.4,
+            "C3": 3.2
+          },
           "reprojection_rms_px": 0.4
         },
         {
@@ -74,6 +104,18 @@ def test_evaluate3d_matches_frames_converts_units_and_checks_thresholds():
       result["points"][0]["error_xyz"], [0.01, -0.02, 0.02]
     )
     assert abs(result["points"][0]["error_3d"] - 0.03) < 1e-12
+    assert result["points"][0]["camera_observation_count"] == 3
+    assert result["points"][0]["cameras_rejected"] == ["C3"]
+    assert result["points"][0]["reprojection_errors_px"]["C3"] == 3.2
+    assert result["camera_groups"] == {
+      "C1": "group12", "C2": "group12", "C3": "group3"
+    }
+    assert result["bundle_adjustment"]["joint"][
+      "optimization_success"
+    ] is True
+    assert result["bundle_adjustment"]["groups"][0][
+      "observation_count"
+    ] == 3
     assert result["acceptance"]["passed"] is False
     assert any(
       "no reconstruction" in failure

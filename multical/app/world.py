@@ -133,6 +133,29 @@ def marker_center(corners, camera=None):
   return distorted_center.reshape(2)
 
 
+def _same_marker_instance(first, second):
+  """Return whether two multi-scale detections are the same marker."""
+  first_corners = np.asarray(first["corners"], dtype=np.float64).reshape(4, 2)
+  second_corners = np.asarray(
+    second["corners"], dtype=np.float64
+  ).reshape(4, 2)
+  edge_lengths = np.concatenate([
+    np.linalg.norm(first_corners - np.roll(first_corners, -1, axis=0), axis=1),
+    np.linalg.norm(
+      second_corners - np.roll(second_corners, -1, axis=0), axis=1
+    )
+  ])
+  # Sub-pixel refinement can converge to slightly different centers when the
+  # same large or oblique marker is detected at multiple image scales. A fixed
+  # five-pixel radius is too small for those markers. Scale the radius with the
+  # shortest detected edge; distinct physical markers cannot overlap this
+  # tightly without their quadrilaterals substantially overlapping.
+  duplicate_radius = max(5.0, 0.25 * float(np.min(edge_lengths)))
+  return np.linalg.norm(
+    np.asarray(first["center"]) - np.asarray(second["center"])
+  ) <= duplicate_radius
+
+
 def detect_marker_centers(
     image_file, family, camera=None, preserve_duplicates=False):
   image_path = Path(image_file)
@@ -186,9 +209,7 @@ def detect_marker_centers(
         # The same physical marker can be found again at another image
         # scale. Keep spatially distinct instances, not scale duplicates.
         if any(
-            np.linalg.norm(
-              existing["center"] - detection["center"]
-            ) < 5.0
+            _same_marker_instance(existing, detection)
             for existing in instances):
           continue
         instances.append(detection)

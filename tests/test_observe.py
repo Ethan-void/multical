@@ -8,15 +8,21 @@ from multical.app.observe import (
   append_automatic_point,
   automatic_point_work_items,
   annotate_observations,
+  clamp_mosaic_view,
   compose_mosaic,
   compose_point_sidebar,
   load_world_correspondences,
   load_world_points,
   load_existing_observations,
   map_mosaic_click,
+  map_viewport_point,
+  mouse_wheel_delta,
+  pan_mosaic_view,
+  render_mosaic_view,
   nudge_observation,
   observation_work_items,
   sidebar_hit_test,
+  zoom_mosaic_view,
   write_observations,
   write_world_observations
 )
@@ -69,6 +75,53 @@ def test_magnifier_click_refines_original_pixel():
   )
   assert camera == "C1"
   assert np.allclose(refined, expected, atol=0.3)
+
+
+def test_zoom_preserves_pixel_under_cursor_and_click_mapping():
+  image = np.zeros((480, 640, 3), dtype=np.uint8)
+  canvas, placements = compose_mosaic(
+    ["C1"], [image], {}, columns=1, tile_width=400
+  )
+  height, width = canvas.shape[:2]
+  placement = placements[0]
+  raw_point = [320.0, 240.0]
+  cursor_x = placement["x"] + raw_point[0] * placement["scale"]
+  cursor_y = placement["y"] + raw_point[1] * placement["scale"]
+  view = {"zoom": 1.0, "offset_x": 0.0, "offset_y": 0.0}
+
+  assert zoom_mosaic_view(
+    view, cursor_x, cursor_y, 120, width, height
+  )
+  mosaic_x, mosaic_y = map_viewport_point(view, cursor_x, cursor_y)
+  camera, mapped = map_mosaic_click(placements, mosaic_x, mosaic_y)
+
+  assert camera == "C1"
+  assert np.allclose(mapped, raw_point)
+
+
+def test_pan_and_zoom_are_clamped_to_mosaic_bounds():
+  view = {"zoom": 2.0, "offset_x": 0.0, "offset_y": 0.0}
+  pan_mosaic_view(view, -1000, -1000, 400, 300)
+  assert view == {"zoom": 2.0, "offset_x": 400.0, "offset_y": 300.0}
+  pan_mosaic_view(view, 1000, 1000, 400, 300)
+  assert view == {"zoom": 2.0, "offset_x": 0.0, "offset_y": 0.0}
+
+  view = {"zoom": 99.0, "offset_x": 9999.0, "offset_y": 9999.0}
+  clamp_mosaic_view(view, 400, 300)
+  assert view == {"zoom": 6.0, "offset_x": 2000.0, "offset_y": 1500.0}
+
+
+def test_render_mosaic_view_keeps_canvas_dimensions():
+  canvas = np.zeros((60, 80, 3), dtype=np.uint8)
+  canvas[20, 30] = [255, 255, 255]
+  view = {"zoom": 2.0, "offset_x": 20.0, "offset_y": 10.0}
+  rendered = render_mosaic_view(canvas, view)
+  assert rendered.shape == canvas.shape
+
+
+def test_mouse_wheel_delta_decodes_both_directions():
+  assert mouse_wheel_delta(120 << 16) == 120
+  assert mouse_wheel_delta((-120 & 0xffff) << 16) == -120
 
 
 def test_keyboard_nudge_moves_and_clamps_raw_pixel():

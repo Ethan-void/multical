@@ -1,1 +1,3 @@
 include multical/interface/*.ui
+recursive-include multical/web/worldpoints *.html *.css *.js
+include multical/config/court_snap_anchors.yaml

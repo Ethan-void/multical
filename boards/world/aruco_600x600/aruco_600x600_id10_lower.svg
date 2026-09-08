@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="600mm" height="600mm" viewBox="0 0 600 600">
+<rect width="600" height="600" fill="white"/>
+<g fill="black" shape-rendering="crispEdges">
+<rect x="40.0" y="40.0" width="65.0" height="65.0"/>
+<rect x="105.0" y="40.0" width="65.0" height="65.0"/>
+<rect x="170.0" y="40.0" width="65.0" height="65.0"/>
+<rect x="235.0" y="40.0" width="65.0" height="65.0"/>
+<rect x="300.0" y="40.0" width="65.0" height="65.0"/>
+<rect x="365.0" y="40.0" width="65.0" height="65.0"/>
+<rect x="430.0" y="40.0" width="65.0" height="65.0"/>
+<rect x="495.0" y="40.0" width="65.0" height="65.0"/>
+<rect x="40.0" y="105.0" width="65.0" height="65.0"/>
+<rect x="105.0" y="105.0" width="65.0" height="65.0"/>
+<rect x="235.0" y="105.0" width="65.0" height="65.0"/>
+<rect x="300.0" y="105.0" width="65.0" height="65.0"/>
+<rect x="365.0" y="105.0" width="65.0" height="65.0"/>
+<rect x="495.0" y="105.0" width="65.0" height="65.0"/>
+<rect x="40.0" y="170.0" width="65.0" height="65.0"/>
+<rect x="105.0" y="170.0" width="65.0" height="65.0"/>
+<rect x="365.0" y="170.0" width="65.0" height="65.0"/>
+<rect x="495.0" y="170.0" width="65.0" height="65.0"/>
+<rect x="40.0" y="235.0" width="65.0" height="65.0"/>
+<rect x="495.0" y="235.0" width="65.0" height="65.0"/>
+<rect x="40.0" y="300.0" width="65.0" height="65.0"/>
+<rect x="105.0" y="300.0" width="65.0" height="65.0"/>
+<rect x="170.0" y="300.0" width="65.0" height="65.0"/>
+<rect x="235.0" y="300.0" width="65.0" height="65.0"/>
+<rect x="495.0" y="300.0" width="65.0" height="65.0"/>
+<rect x="40.0" y="365.0" width="65.0" height="65.0"/>
+<rect x="105.0" y="365.0" width="65.0" height="65.0"/>
+<rect x="235.0" y="365.0" width="65.0" height="65.0"/>
+<rect x="300.0" y="365.0" width="65.0" height="65.0"/>
+<rect x="495.0" y="365.0" width="65.0" height="65.0"/>
+<rect x="40.0" y="430.0" width="65.0" height="65.0"/>
+<rect x="170.0" y="430.0" width="65.0" height="65.0"/>
+<rect x="235.0" y="430.0" width="65.0" height="65.0"/>
+<rect x="300.0" y="430.0" width="65.0" height="65.0"/>
+<rect x="495.0" y="430.0" width="65.0" height="65.0"/>
+<rect x="40.0" y="495.0" width="65.0" height="65.0"/>
+<rect x="105.0" y="495.0" width="65.0" height="65.0"/>
+<rect x="170.0" y="495.0" width="65.0" height="65.0"/>
+<rect x="235.0" y="495.0" width="65.0" height="65.0"/>
+<rect x="300.0" y="495.0" width="65.0" height="65.0"/>
+<rect x="365.0" y="495.0" width="65.0" height="65.0"/>
+<rect x="430.0" y="495.0" width="65.0" height="65.0"/>
+<rect x="495.0" y="495.0" width="65.0" height="65.0"/>
+</g>
+</svg>

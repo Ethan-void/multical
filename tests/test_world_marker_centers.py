@@ -7,6 +7,7 @@ import numpy as np
 import yaml
 
 from multical.app.world import (
+  _same_marker_instance,
   diagonal_center,
   discover_ordered_capture_images,
   extract_marker_center_correspondences,
@@ -27,6 +28,33 @@ def _paste_marker(image, dictionary, marker_id, center, size=44):
   x = int(round(center[0] - size / 2))
   y = int(round(center[1] - size / 2))
   image[y:y + size, x:x + size] = marker
+
+
+def test_multiscale_marker_deduplication_scales_with_marker_size():
+  first = {
+    "center": np.array([200.0, 200.0]),
+    "corners": np.array([
+      [150.0, 150.0], [250.0, 150.0],
+      [250.0, 250.0], [150.0, 250.0]
+    ])
+  }
+  shifted_same_marker = {
+    "center": np.array([206.0, 205.0]),
+    "corners": np.array([
+      [160.0, 160.0], [252.0, 160.0],
+      [252.0, 252.0], [160.0, 252.0]
+    ])
+  }
+  distinct_marker = {
+    "center": np.array([200.0, 260.0]),
+    "corners": np.array([
+      [150.0, 210.0], [250.0, 210.0],
+      [250.0, 310.0], [150.0, 310.0]
+    ])
+  }
+
+  assert _same_marker_instance(first, shifted_same_marker)
+  assert not _same_marker_instance(first, distinct_marker)
 
 
 def test_marker_geometry_quality_rejects_oblique_and_tiny_markers():

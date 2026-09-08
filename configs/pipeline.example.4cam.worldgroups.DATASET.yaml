@@ -1,8 +1,8 @@
 variables:
-  dataset: 20260810
-  boards: boards/charuco_1600x1200.yaml
+  dataset: DATASET
+  boards: boards/extrinsic/charuco_1600x1200.yaml
   cameras: &cameras [cam0, cam1,cam4, cam5]
-  output_root: 20260810
+  output_root: DATASET
 
 state_file: "{output_root}/pipeline_state.json"
 
@@ -165,7 +165,6 @@ stages:
 
 
   analyze_intrinsic:
-    # 单独使用时显式选择；不在 all 中重复生成报告。
     enabled: false
     command: analyze
     group: intrinsic_analysis
@@ -174,7 +173,6 @@ stages:
       output: "{output_root}/reports/intrinsic_analysis.xlsx"
 
   analyze_extrinsic_01:
-    # workspace 可提供逐观测和优化过程等更完整的外参分析。
     enabled: false
     command: analyze
     group: extrinsic_analysis
@@ -184,7 +182,6 @@ stages:
       output: "{output_root}/reports/extrinsic_analysis_01.xlsx"
 
   analyze_extrinsic_45:
-    # workspace 可提供逐观测和优化过程等更完整的外参分析。
     enabled: false
     command: analyze
     group: extrinsic_analysis
@@ -192,22 +189,3 @@ stages:
       extrinsic: "{output_root}/extrinsic_45/calibration.json"
       workspace: "{output_root}/extrinsic_45/calibration.pkl"
       output: "{output_root}/reports/extrinsic_analysis_45.xlsx"
-
-  analyze_worldgroups:
-    command: analyze_worldgroups
-    group: report
-    needs: [worldgroupba, evaluate3d]
-    args:
-      world_extrinsics: "{output_root}/world/world_extrinsic.json"
-      evaluation: "{output_root}/reports/evaluation3d.json"
-      output: "{output_root}/reports/worldgroups_analysis.json"
-      max_local_rms_px: 0.5
-      min_world_inlier_rate: 0.5
-      max_world_rms_px: 2.5
-      min_shared_control_points: 4
-      max_shared_control_mean_px: 3.0
-      max_shared_control_spread_px: 3.0
-      min_cross_group_3d_points: 3
-      max_cross_group_mean_error: 0.05
-      max_cross_group_p95_error: 0.10
-      max_cross_group_error: 0.20

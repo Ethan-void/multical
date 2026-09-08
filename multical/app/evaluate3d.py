@@ -129,6 +129,74 @@ def reconstruction_frames(data):
   return frames
 
 
+def reconstruction_world_extrinsics(data, reconstruction_path):
+  """Load world-extrinsic metadata referenced by a reconstruction."""
+  world_extrinsics = data.get("world_extrinsics")
+  if not world_extrinsics:
+    return None
+  candidate = Path(world_extrinsics).expanduser()
+  if not candidate.is_absolute():
+    candidate = reconstruction_path.parent / candidate
+  if not candidate.is_file():
+    relocated = (
+      reconstruction_path.parent.parent / "world" / candidate.name
+    )
+    if relocated.is_file():
+      candidate = relocated
+    else:
+      return None
+  return load_json_or_yaml(candidate)
+
+
+def reconstruction_camera_groups(data, world_data):
+  """Return camera-to-group names referenced by a reconstruction."""
+  embedded = data.get("camera_groups")
+  if isinstance(embedded, dict):
+    return {
+      str(camera): str(group)
+      for camera, group in embedded.items()
+    }
+  groups = world_data.get("groups") if isinstance(world_data, dict) else None
+  if not isinstance(groups, list):
+    return {}
+  camera_groups = {}
+  for group in groups:
+    if not isinstance(group, dict) or group.get("name") is None:
+      continue
+    for camera in group.get("cameras") or []:
+      camera_groups[str(camera)] = str(group["name"])
+  return camera_groups
+
+
+def reconstruction_bundle_adjustment(world_data):
+  """Return compact joint-BA convergence details for reporting."""
+  if not isinstance(world_data, dict):
+    return None
+  joint = world_data.get("joint_bundle_adjustment")
+  if not isinstance(joint, dict):
+    return None
+  groups = []
+  for group in world_data.get("groups") or []:
+    if not isinstance(group, dict):
+      continue
+    quality = group.get("joint") or {}
+    groups.append({
+      "name": group.get("name"),
+      "cameras": list(group.get("cameras") or []),
+      "optimization_success": quality.get("optimization_success"),
+      "observation_count": quality.get("observation_count"),
+      "inlier_count": quality.get("inlier_count"),
+      "reprojection_rms_px": quality.get("reprojection_rms_px"),
+      "all_points_rms_px": quality.get("all_points_rms_px"),
+      "all_points_max_px": quality.get("all_points_max_px")
+    })
+  return {
+    "method": world_data.get("method"),
+    "joint": joint,
+    "groups": groups
+  }
+
+
 def _statistics(errors):
   values = np.asarray(errors, dtype=np.float64)
   return {
@@ -197,6 +265,13 @@ def evaluate_reconstruction(
 
   measured, measured_units = parse_ground_truth(ground_truth_data)
   frames = reconstruction_frames(reconstruction)
+  world_extrinsics = reconstruction_world_extrinsics(
+    reconstruction, reconstruction_path
+  )
+  camera_groups = reconstruction_camera_groups(
+    reconstruction, world_extrinsics
+  )
+  bundle_adjustment = reconstruction_bundle_adjustment(world_extrinsics)
   reconstruction_units = reconstruction.get("world_units", "meters")
   measured_units = measured_units or reconstruction_units
   scale = unit_scale(measured_units, reconstruction_units)
@@ -224,6 +299,11 @@ def evaluate_reconstruction(
       "reconstructed point {}".format(identifier)
     )
     delta = reconstructed_point - measured_point
+    cameras_used = list(frame.get("cameras_used") or [])
+    cameras_rejected = list(frame.get("cameras_rejected") or [])
+    camera_observations = list(dict.fromkeys(
+      cameras_used + cameras_rejected
+    ))
     point_results.append({
       "frame": identifier,
       "measured_world": measured_point.tolist(),
@@ -231,7 +311,12 @@ def evaluate_reconstruction(
       "error_xyz": delta.tolist(),
       "abs_error_xyz": np.abs(delta).tolist(),
       "error_3d": float(np.linalg.norm(delta)),
-      "cameras_used": frame.get("cameras_used"),
+      "cameras_used": cameras_used,
+      "cameras_rejected": cameras_rejected,
+      "camera_observation_count": len(camera_observations),
+      "reprojection_errors_px": frame.get(
+        "reprojection_errors_px", {}
+      ),
       "reprojection_rms_px": frame.get("reprojection_rms_px")
     })
 
@@ -319,6 +404,8 @@ def evaluate_reconstruction(
       "passed": not failures,
       "failures": failures
     },
+    "camera_groups": camera_groups,
+    "bundle_adjustment": bundle_adjustment,
     "points": point_results,
     "failed_reconstructions": failed_reconstruction,
     "missing_reconstructions": missing_reconstruction,

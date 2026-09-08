@@ -1,0 +1,8 @@
+marker_family: 6X6_250
+world_units: meters
+
+markers:
+  - marker_id: 12
+    height: 1.690
+  - marker_id: 10
+    height: 0.590

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>World Coordinate Studio</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">MULTICAL · COURT COORDINATES</p>
+      <h1>世界坐标编辑器</h1>
+    </div>
+    <div class="file-status">
+      <span id="modeBadge" class="badge">MEASURED</span>
+      <span id="saveStatus" class="save-status">准备就绪</span>
+      <p id="outputPath"></p>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="main-column">
+      <article id="topCard" class="panel top-card">
+        <div class="panel-heading compact">
+          <div>
+            <p class="section-kicker">PRIMARY PICKER · XY PLANE</p>
+            <h2>Top View · 原点累计坐标</h2>
+          </div>
+          <div class="view-tools">
+            <p class="hint"><i class="anchor-sample"></i> 高亮角点可自动吸附</p>
+            <button id="exportTop" class="view-reset" type="button">导出 PNG</button>
+            <button id="fullscreenTop" class="view-reset" type="button" aria-pressed="false">全屏</button>
+          </div>
+        </div>
+        <canvas id="topView" aria-label="Top view coordinate picker"></canvas>
+      </article>
+
+      <article class="panel observe-card">
+        <div class="panel-heading compact">
+          <div>
+            <p id="previewKicker" class="section-kicker">OBSERVE · READ ONLY</p>
+            <h2 id="observeTitle">选择 Point 查看手戳结果</h2>
+          </div>
+          <span id="observeMeta" class="hint"></span>
+        </div>
+        <div id="observeEmpty" class="observe-empty">
+          从右侧选择 P01、P02…，这里会显示各相机的原图、像素位置和局部放大。
+        </div>
+        <img id="observeImage" alt="Observe 手戳结果">
+      </article>
+
+      <article id="courtCard" class="panel court-card">
+        <div class="panel-heading compact">
+          <div><p class="section-kicker">SPATIAL PREVIEW</p><h2 id="courtTitle">3D 场地</h2></div>
+          <div class="view-tools">
+            <span class="hint">拖动旋转 · Alt + 滚轮缩放</span>
+            <button id="reset3d" class="view-reset" type="button">重置视角</button>
+            <button id="fullscreen3d" class="view-reset" type="button" aria-pressed="false">全屏</button>
+          </div>
+        </div>
+        <canvas id="court3d" aria-label="3D tennis court preview"></canvas>
+      </article>
+    </section>
+
+    <aside class="control-column">
+      <article class="panel editor-card">
+        <div class="panel-heading compact">
+          <div><p class="section-kicker">CURRENT POINT</p><h2 id="currentName">—</h2></div>
+          <span id="currentState" class="state-pill">未设置</span>
+        </div>
+        <div class="coordinate-grid">
+          <label><span>X / m</span><input id="coordX" type="number" step="0.001"></label>
+          <label><span>Y / m</span><input id="coordY" type="number" step="0.001"></label>
+          <label><span>Z / m</span><input id="coordZ" type="number" step="0.001"></label>
+        </div>
+        <div id="markerFields" class="marker-fields" hidden>
+          <label><span>Marker IDs</span><input id="markerIds" type="text"></label>
+          <label><span>固定高度 Z</span><input id="markerHeights" type="text"></label>
+          <label><span>Occurrence</span><input id="markerOccurrences" type="text"></label>
+        </div>
+        <p id="validationMessage" class="validation-message"></p>
+        <div class="action-row">
+          <button id="saveButton" class="primary">Add / Update</button>
+          <button id="undoButton" class="secondary">Undo</button>
+          <button id="clearButton" class="danger">Clear all</button>
+        </div>
+      </article>
+
+      <article class="panel point-panel">
+        <div class="panel-heading">
+          <div>
+            <p id="workListMode" class="section-kicker">WORK LIST</p>
+            <h2 id="workListTitle">Points</h2>
+          </div>
+          <span id="progress">0 / 0</span>
+        </div>
+        <div id="pointList" class="point-list" aria-label="Observe points"></div>
+        <div class="panel-footer">
+          <span><i class="dot complete"></i> 已设置</span>
+          <span><i class="dot pending"></i> 待设置</span>
+        </div>
+      </article>
+    </aside>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

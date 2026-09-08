@@ -149,10 +149,12 @@ __pycache__/
 *.py[cod]
 
 # 本地数据
-20260804/
-20260804_worldgroups/
-20260810/
-20260811/
-charuco_l_split/
-dataset/
+202608*/
+202609*/
+data/
+/tmp/
+outputs/
 
+# 本地/带日期的 pipeline 配置；通用 example 配置保留在仓库中
+/configs/pipeline.*.yaml
+!/configs/pipeline.example*.yaml
