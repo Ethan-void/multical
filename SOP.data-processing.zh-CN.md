@@ -31,10 +31,10 @@ raw_sessions/
 先预检，不复制文件：
 
 ```bash
-uv run python scripts/merge_camera_sessions.py raw_sessions \
+uv run python scripts/merge_camera_sessions.py \
   --output data/merged \
   --sessions capture1 capture2 \
-  --cameras cam2 cam3 \
+  --cameras cam4 cam5 \
   --dry-run
 ```
 

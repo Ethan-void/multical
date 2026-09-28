@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import copy
+
 import cv2
+import pytest
 import numpy as np
 
 from multical.app.worldgroupba import (
@@ -39,7 +42,8 @@ def test_transform_parameter_roundtrip():
   )
 
 
-def test_joint_problem_combines_charuco_world_and_relative_prior():
+@pytest.mark.parametrize("overlap", [False, True])
+def test_joint_problem_combines_charuco_world_and_relative_prior(overlap):
   intrinsic = {"cameras": {"cam0": _camera(), "cam1": _camera()}}
   local_cam1 = _translation(1.0, 0.0, 0.0)
   world_to_group = _translation(0.0, 0.0, 5.0)
@@ -94,14 +98,27 @@ def test_joint_problem_combines_charuco_world_and_relative_prior():
     "world_observations": world_observations,
     "world_blocks": world_blocks
   }
+  groups = [group]
+  if overlap:
+    redundant = copy.deepcopy(group)
+    redundant["name"] = "redundant"
+    redundant["reference"] = "cam1"
+    redundant["cameras"] = ["cam1", "cam0"]
+    redundant["world_to_group"] = local_cam1 @ world_to_group
+    redundant["local_poses"] = {
+      "cam1": np.eye(4), "cam0": np.linalg.inv(local_cam1)
+    }
+    redundant["frame_poses"] = {(0, 0): local_cam1 @ frame_pose}
+    groups.append(redundant)
   problem = _JointProblem(
-    intrinsic, {}, [group], 1.0, 1.0, 0.1, 0.02,
-    {"group01": 5.0}
+    intrinsic, {}, groups, 1.0, 1.0, 0.1, 0.02,
+    {item["name"]: 5.0 for item in groups}
   )
 
   assert np.allclose(problem.residuals(problem.initial_parameters), 0.0)
   perturbed = problem.initial_parameters.copy()
-  camera_slice = problem.slices[("group01", "camera", "cam1")]
+  camera_slice = problem.slices[("camera", "cam1") if overlap
+                                else ("group01", "camera", "cam1")]
   perturbed[camera_slice.start + 3] += 0.05
   residuals = problem.residuals(perturbed)
   assert np.linalg.norm(residuals) > 0.0
@@ -109,6 +126,22 @@ def test_joint_problem_combines_charuco_world_and_relative_prior():
     problem.residual_count,
     problem.initial_parameters.size
   )
+
+  if overlap:
+    solutions = problem.solution(perturbed)
+    for camera in group["cameras"]:
+      np.testing.assert_allclose(
+        solutions["group01"]["world_to_cameras"][camera],
+        solutions["redundant"]["world_to_cameras"][camera]
+      )
+    # Every numerically affected residual must be declared in the sparse Jacobian.
+    base = problem.residuals(perturbed)
+    for column in range(perturbed.size):
+      moved = perturbed.copy()
+      moved[column] += 1e-6
+      affected = np.abs(problem.residuals(moved) - base) > 1e-8
+      declared = problem.sparsity[:, column].toarray().ravel().astype(bool)
+      assert np.all(declared[affected])
 
 
 def test_joint_problem_uses_group_specific_prior_weights():

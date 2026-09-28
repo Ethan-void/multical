@@ -76,11 +76,13 @@ def _camera_record(world_to_camera):
 def merge_world_groups(
     intrinsic_file, calibration_files, world_extrinsic_files, output_file,
     calibration_output=None, master=None, group_names=None,
-    max_rotation_error_deg=0.01, max_translation_error=1e-4
+    max_rotation_error_deg=0.01, max_translation_error=1e-4,
+    allow_overlap=False
 ):
   """Merge group world poses and optionally derive one global calibration.
 
-  Every group must contain a disjoint set of cameras. Its world result must
+  Groups are disjoint unless allow_overlap is enabled for BA initialization.
+  With overlap, the first group supplies each camera initial pose. Each result must
   preserve the relative camera poses exported by that group's calibration.
   """
   calibration_files = list(calibration_files)
@@ -129,7 +131,7 @@ def merge_world_groups(
         "group {} calibration and world camera sets differ".format(name)
       )
     duplicate = seen.intersection(group_cameras)
-    if duplicate:
+    if duplicate and not allow_overlap:
       raise ValueError(
         "cameras occur in multiple groups: {}".format(
           ", ".join(sorted(duplicate))
@@ -190,7 +192,7 @@ def merge_world_groups(
       }
       max_rotation = max(max_rotation, rotation_error)
       max_translation = max(max_translation, translation_error)
-      merged_cameras[camera_name] = _camera_record(world_to_camera)
+      merged_cameras.setdefault(camera_name, _camera_record(world_to_camera))
 
     if max_rotation > float(max_rotation_error_deg):
       raise ValueError(
@@ -294,6 +296,7 @@ class Worldgroups:
   group_names: Optional[List[str]] = None
   max_rotation_error_deg: float = 0.01
   max_translation_error: float = 1e-4
+  allow_overlap: bool = False
 
   def execute(self):
     result, output_path, calibration_path = merge_world_groups(
@@ -305,7 +308,8 @@ class Worldgroups:
       self.master,
       self.group_names,
       self.max_rotation_error_deg,
-      self.max_translation_error
+      self.max_translation_error,
+      self.allow_overlap
     )
     summary = {
       "world_units": result["world_units"],

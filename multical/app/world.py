@@ -133,6 +133,97 @@ def marker_center(corners, camera=None):
   return distorted_center.reshape(2)
 
 
+def _refine_marker_edges(gray, corners, camera=None, module_count=6):
+  """Fit the outer black/white transitions; fall back on weak/ambiguous edges.
+
+  Profiles are sampled in the source image, but lines are fitted in an
+  undistorted pixel plane. This avoids treating distorted edges as straight.
+  """
+  corners = np.asarray(corners, dtype=np.float64).reshape(4, 2)
+  lengths = np.linalg.norm(np.roll(corners, -1, axis=0) - corners, axis=1)
+  radius = min(3.0, float(np.min(lengths)) / module_count * 0.3)
+  if radius < 1.0:
+    return corners, None
+  offsets = np.arange(-radius, radius + 0.125, 0.25)
+  center = np.mean(corners, axis=0)
+  lines, residuals = [], []
+  intrinsic = None if camera is None else np.asarray(camera["K"], dtype=float)
+  distortion = None if camera is None else np.asarray(camera["dist"], dtype=float)
+  for index in range(4):
+    start, end = corners[index], corners[(index + 1) % 4]
+    tangent = (end - start) / lengths[index]
+    normal = np.array([-tangent[1], tangent[0]])
+    if np.dot(normal, center - (start + end) / 2) < 0:
+      normal = -normal
+    count = int(np.clip(lengths[index] * 0.6, 12, 100))
+    bases = start + np.linspace(0.15, 0.85, count)[:, None] * (end - start)
+    if camera is not None:
+      endpoints = cv2.undistortPoints(
+        np.array([start, end]).reshape(-1, 1, 2), intrinsic, distortion).reshape(2, 2)
+      ideal = endpoints[0] + np.linspace(0.15, 0.85, count)[:, None] * (
+        endpoints[1] - endpoints[0])
+      bases = cv2.projectPoints(
+        np.column_stack([ideal, np.ones(count)]), np.zeros(3), np.zeros(3),
+        intrinsic, distortion)[0].reshape(-1, 2)
+    samples = bases[:, None, :] + offsets[None, :, None] * normal
+    if (np.min(samples[..., 0]) < 1 or np.min(samples[..., 1]) < 1
+        or np.max(samples[..., 0]) >= gray.shape[1] - 2
+        or np.max(samples[..., 1]) >= gray.shape[0] - 2):
+      return corners, None
+    x0, y0 = np.floor(samples.reshape(-1, 2).min(axis=0)).astype(int) - 1
+    x1, y1 = np.ceil(samples.reshape(-1, 2).max(axis=0)).astype(int) + 2
+    values = cv2.remap(
+      gray[y0:y1, x0:x1].astype(np.float32),
+      (samples[..., 0] - x0).astype(np.float32),
+      (samples[..., 1] - y0).astype(np.float32),
+      cv2.INTER_LINEAR)
+    # Moving inward must cross from the white surround to the black border.
+    gradient = (values[:, :-2] - values[:, 2:]) / 0.5
+    peaks = np.argmax(gradient, axis=1)
+    rows = np.arange(count)
+    valid = ((peaks > 0) & (peaks < gradient.shape[1] - 1)
+             & (gradient[rows, peaks] > 12)
+             & (values[:, 0] - values[:, -1] > 20))
+    if np.count_nonzero(valid) < max(8, int(count * 0.7)):
+      return corners, None
+    rows, peaks = rows[valid], peaks[valid]
+    left = gradient[rows, peaks - 1]
+    middle = gradient[rows, peaks]
+    right = gradient[rows, peaks + 1]
+    denominator = left - 2 * middle + right
+    shift = np.divide(0.5 * (left - right), denominator,
+                      out=np.zeros_like(left), where=np.abs(denominator) > 1e-6)
+    positions = offsets[peaks + 1] + np.clip(shift, -0.5, 0.5) * 0.25
+    points = bases[valid] + positions[:, None] * normal
+    if camera is not None:
+      points = cv2.undistortPoints(
+        points.reshape(-1, 1, 2), intrinsic, distortion, P=intrinsic).reshape(-1, 2)
+    vx, vy, x, y = cv2.fitLine(
+      points.astype(np.float32), cv2.DIST_HUBER, 0, 0.01, 0.01).reshape(4)
+    line = np.array([-vy, vx, vy * x - vx * y], dtype=float)
+    errors = np.abs(points @ line[:2] + line[2])
+    if np.quantile(errors, 0.9) > 0.6:
+      return corners, None
+    lines.append(line)
+    residuals.extend(errors.tolist())
+  fitted = []
+  for index in range(4):
+    intersection = np.cross(lines[index - 1], lines[index])
+    if abs(intersection[2]) < 1e-6:
+      return corners, None
+    fitted.append(intersection[:2] / intersection[2])
+  fitted = np.asarray(fitted)
+  if camera is not None:
+    rays = np.column_stack([fitted, np.ones(4)]) @ np.linalg.inv(intrinsic).T
+    fitted = cv2.projectPoints(
+      rays, np.zeros(3), np.zeros(3), intrinsic, distortion)[0].reshape(4, 2)
+  if (not np.isfinite(fitted).all()
+      or not cv2.isContourConvex(fitted.astype(np.float32))
+      or np.max(np.linalg.norm(fitted - corners, axis=1)) > radius):
+    return corners, None
+  return fitted, float(np.sqrt(np.mean(np.square(residuals))))
+
+
 def _same_marker_instance(first, second):
   """Return whether two multi-scale detections are the same marker."""
   first_corners = np.asarray(first["corners"], dtype=np.float64).reshape(4, 2)
@@ -188,10 +279,15 @@ def detect_marker_centers(
         np.asarray(marker_corners, dtype=np.float32).reshape(4, 2) /
         float(scale)
       )
+      # Keep the refinement window inside a fraction of one code module.
+      min_edge = np.min(np.linalg.norm(
+        refined_corners - np.roll(refined_corners, -1, axis=0), axis=1))
+      module_count = int(dictionary.markerSize) + 2
+      window = int(np.clip(min_edge / module_count * 0.3, 1, 5))
       cv2.cornerSubPix(
         gray,
         refined_corners,
-        (5, 5),
+        (window, window),
         (-1, -1),
         (
           cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
@@ -199,10 +295,13 @@ def detect_marker_centers(
           0.01
         )
       )
-      refined_corners = refined_corners.astype(np.float64)
+      refined_corners, edge_rms = _refine_marker_edges(
+        gray, refined_corners, camera, module_count)
       detection = {
         "corners": refined_corners,
-        "center": marker_center(refined_corners, camera)
+        "center": marker_center(refined_corners, camera),
+        "refinement": "edges" if edge_rms is not None else "subpix",
+        "edge_rms_px": edge_rms
       }
       if preserve_duplicates:
         instances = detected.setdefault(marker_id, [])

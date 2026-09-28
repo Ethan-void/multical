@@ -7,6 +7,7 @@ import numpy as np
 import yaml
 
 from multical.app.world import (
+  _refine_marker_edges,
   _same_marker_instance,
   diagonal_center,
   discover_ordered_capture_images,
@@ -191,6 +192,63 @@ def test_diagonal_center_handles_projective_quadrilateral():
   assert abs(cross_02) < 1e-10
   assert abs(cross_13) < 1e-10
   assert not np.allclose(center, line_02)
+
+
+def test_edge_refinement_recovers_projective_center():
+  # Supersampling supplies fractional-pixel ground truth independently of
+  # the edge fitting algorithm, including a perspective-skewed marker.
+  truth = np.array([[42.3, 30.7], [173.4, 45.2],
+                    [156.6, 177.3], [55.2, 162.8]])
+  scale = 8
+  image = np.full((210 * scale, 210 * scale), 240, dtype=np.uint8)
+  cv2.fillConvexPoly(image, np.rint((truth + 0.5) * scale - 0.5).astype(int), 15)
+  image = cv2.resize(image, (210, 210), interpolation=cv2.INTER_AREA)
+  image = cv2.GaussianBlur(image, (5, 5), 0.8)
+  image = np.clip(image.astype(float) + np.random.default_rng(7).normal(
+    0, 1.0, image.shape), 0, 255).astype(np.uint8)
+  initial = truth + np.array([[0.9, -0.6], [0.7, 0.8],
+                             [1.0, 0.4], [-0.3, 0.9]])
+  refined, rms = _refine_marker_edges(image, initial)
+  assert rms is not None
+  assert np.linalg.norm(diagonal_center(refined) - diagonal_center(truth)) < 0.2
+  assert np.linalg.norm(refined - truth) < np.linalg.norm(initial - truth) * 0.4
+
+
+def test_edge_refinement_falls_back_without_reliable_edges():
+  corners = np.array([[20., 20.], [80., 20.], [80., 80.], [20., 80.]])
+  for image in (np.full((100, 100), 127, dtype=np.uint8),
+                np.random.default_rng(9).integers(0, 256, (100, 100), dtype=np.uint8)):
+    refined, rms = _refine_marker_edges(image, corners)
+    assert rms is None
+    np.testing.assert_array_equal(refined, corners)
+
+
+def test_edge_refinement_handles_distorted_edges():
+  intrinsic = np.array([[170., 0., 160.], [0., 170., 160.], [0., 0., 1.]])
+  distortion = np.array([0.3, 0.05, 0.001, -0.002, 0.])
+  camera = {"K": intrinsic, "dist": distortion}
+  truth = np.array([[65.3, 60.7], [139.4, 68.2],
+                    [133.6, 151.3], [65.2, 141.8]])
+  # Render by inverse mapping each distorted pixel into the ideal plane.
+  scale = 4
+  yy, xx = np.mgrid[:320 * scale, :320 * scale]
+  pixels = np.column_stack([(xx.ravel() + 0.5) / scale - 0.5,
+                            (yy.ravel() + 0.5) / scale - 0.5])
+  ideal = cv2.undistortPoints(pixels.reshape(-1, 1, 2), intrinsic,
+                              distortion, P=intrinsic).reshape(-1, 2)
+  inside = np.ones(len(ideal), dtype=bool)
+  for a, b in zip(truth, np.roll(truth, -1, axis=0)):
+    inside &= ((b[0] - a[0]) * (ideal[:, 1] - a[1])
+               - (b[1] - a[1]) * (ideal[:, 0] - a[0])) >= 0
+  image = np.where(inside, 15, 240).astype(np.uint8).reshape(320 * scale, -1)
+  image = cv2.resize(image, (320, 320), interpolation=cv2.INTER_AREA)
+  image = cv2.GaussianBlur(image, (5, 5), 0.8)
+  rays = np.column_stack([truth, np.ones(4)]) @ np.linalg.inv(intrinsic).T
+  distorted = cv2.projectPoints(rays, np.zeros(3), np.zeros(3),
+                                 intrinsic, distortion)[0].reshape(4, 2)
+  refined, rms = _refine_marker_edges(image, distorted + 0.4, camera)
+  assert rms is not None
+  assert np.max(np.linalg.norm(refined - distorted, axis=1)) < 0.3
 
 
 def test_resolve_capture_image_supports_common_layouts():

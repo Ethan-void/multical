@@ -59,21 +59,24 @@ def court_geometry(court="tennis"):
   if court == "tennis":
     geometry = dict(length=COURT_LENGTH, doubles=DOUBLES_WIDTH,
                     singles=SINGLES_WIDTH, service=SERVICE_LINE,
+                    net_x=COURT_LENGTH / 2,
                     net_center=.914, net_post=1.07, net_half=6.4,
                     net_bottom=.04, label="网球场")
   elif court == "badminton":
-    geometry = dict(length=13.4, doubles=6.1, singles=5.18, service=4.72,
-                    net_center=1.524, net_post=1.55, net_half=3.05,
+    geometry = dict(length=13.36, doubles=6.06, singles=5.14, service=4.68,
+                    net_x=6.66,
+                    net_center=1.524, net_post=1.55, net_half=3.03,
                     net_bottom=.79, label="羽毛球场")
   else:
     raise ValueError("court must be tennis or badminton")
   length, width = geometry["length"], geometry["doubles"] / 2
   singles, service = geometry["singles"] / 2, geometry["service"]
   lines = [[0, y, length, y] for y in (-width, width, -singles, singles)]
-  for x in (0, service, length / 2, length - service, length):
+  net_x = geometry["net_x"]
+  for x in (0, service, net_x, length - service, length):
     half = width if court == "badminton" or x in (0, length) else singles
     # The badminton net is above the floor; there is no painted midcourt line.
-    if court != "badminton" or x != length / 2:
+    if court != "badminton" or x != net_x:
       lines.append([x, -half, x, half])
   if court == "badminton":
     lines.extend([[.76, -width, .76, width],
@@ -416,7 +419,7 @@ def _draw_court_3d(axis, maximum_height, court="tennis"):
   for x0, y0, x1, y1 in geometry["lines"]:
     axis.plot([x0, x1], [y0, y1], [0, 0], color=white, linewidth=2)
   axis.plot(
-    [length / 2.0] * 3,
+    [geometry["net_x"]] * 3,
     [-geometry["net_half"], 0, geometry["net_half"]],
     [geometry["net_post"], geometry["net_center"], geometry["net_post"]],
     color="#334155", linewidth=2

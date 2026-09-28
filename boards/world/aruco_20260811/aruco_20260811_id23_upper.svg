@@ -46,4 +46,11 @@
 <rect x="430" y="495" width="65" height="65"/>
 <rect x="495" y="495" width="65" height="65"/>
 </g>
+<g id="marker-center" aria-label="Marker geometric center at (300, 300) mm" fill="none">
+  <title>Black marker bounds: (40, 40) to (560, 560). Center: (300, 300) mm.</title>
+  <path d="M288 300H312 M300 288V312" stroke="white" stroke-width="4"/>
+  <circle cx="300" cy="300" r="7" stroke="white" stroke-width="4"/>
+  <path d="M288 300H312 M300 288V312" stroke="#e60026" stroke-width="2"/>
+  <circle cx="300" cy="300" r="7" stroke="#e60026" stroke-width="2"/>
+</g>
 </svg>

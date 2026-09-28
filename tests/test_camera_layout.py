@@ -33,7 +33,7 @@ def test_layout_exports_png_and_rejects_missing_cameras(tmp_path):
 
 
 @pytest.mark.parametrize("court,length,width", [
-  ("badminton", 13.4, 6.1), ("tennis", 23.77, 10.97),
+  ("badminton", 13.36, 6.06), ("tennis", 23.77, 10.97),
 ])
 def test_layout_uses_court_dimensions_and_markings(tmp_path, monkeypatch, court, length, width):
   from matplotlib.figure import Figure
@@ -50,11 +50,11 @@ def test_layout_uses_court_dimensions_and_markings(tmp_path, monkeypatch, court,
   assert ax.patches[0].get_height() == pytest.approx(width)
   segments = [list(zip(line.get_xdata(), line.get_ydata())) for line in ax.lines]
   if court == "badminton":
-    assert [(0.76, -3.05), (0.76, 3.05)] in segments
-    assert [(0, 0), (4.72, 0)] in segments
-    assert [(4.72, -3.05), (4.72, 3.05)] in segments
+    assert [(0.76, -3.03), (0.76, 3.03)] in segments
+    assert [(0, 0), (4.68, 0)] in segments
+    assert [(4.68, -3.03), (4.68, 3.03)] in segments
   else:
     assert [(5.485, 0), (23.77-5.485, 0)] in segments
   # Explicit pipeline configuration takes precedence over JSON metadata.
   render_camera_layout(source, court="badminton")
-  assert figures[-1].axes[0].patches[0].get_width() == 13.4
+  assert figures[-1].axes[0].patches[0].get_width() == 13.36

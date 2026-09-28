@@ -33,8 +33,8 @@ CAMERA_PATTERN = re.compile(r"^ca?m(\d+)$", re.IGNORECASE)
 
 # macOS configuration: edit these two paths if you prefer not to pass paths
 # on the command line. Keep DEFAULT_OUTPUT_PATH empty to use SOURCE/merged.
-DEFAULT_SOURCE_PATH = "dataset/pending"
-DEFAULT_OUTPUT_PATH = "dataset/merged/20260811"
+DEFAULT_SOURCE_PATH = "data/pending"
+DEFAULT_OUTPUT_PATH = "data/merged"
 
 # Empty lists mean "all". Names must match directories under the source.
 # Example: ["capture1", "capture3"] and ["cam0", "cam5"].

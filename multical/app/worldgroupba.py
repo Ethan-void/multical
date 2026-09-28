@@ -154,10 +154,21 @@ class _JointProblem:
       parameters.append(value)
       self.slices[key] = slice(start, start + value.size)
 
+    camera_names = [camera for group in groups for camera in group["cameras"]]
+    self.shared_cameras = len(camera_names) != len(set(camera_names))
     for group in groups:
-      append((group["name"], "world"), group["world_to_group"])
+      if self.shared_cameras:
+        for camera in group["cameras"]:
+          key = ("camera", camera)
+          if key not in self.slices:
+            record = initial_world.get("cameras", {}).get(camera)
+            pose = (transform_from_json(record["world_to_camera"]) if record
+                    else group["local_poses"][camera] @ group["world_to_group"])
+            append(key, pose)
+      else:
+        append((group["name"], "world"), group["world_to_group"])
       for camera_name in group["cameras"]:
-        if camera_name != group["reference"]:
+        if not self.shared_cameras and camera_name != group["reference"]:
           append(
             (group["name"], "camera", camera_name),
             group["local_poses"][camera_name]
@@ -193,6 +204,11 @@ class _JointProblem:
         dependencies = [(name, "frame", block["frame_key"])]
         if block["camera"] != group["reference"]:
           dependencies.append((name, "camera", block["camera"]))
+        if self.shared_cameras:
+          dependencies = [(name, "frame", block["frame_key"])] + [
+            ("camera", camera) for camera in
+            dict.fromkeys([block["camera"], group["reference"]])
+          ]
         add(
           "charuco", name, len(block["points"]), dependencies, block
         )
@@ -200,6 +216,8 @@ class _JointProblem:
         dependencies = [(name, "world")]
         if camera_name != group["reference"]:
           dependencies.append((name, "camera", camera_name))
+        if self.shared_cameras:
+          dependencies = [("camera", camera_name)]
         add(
           "world", name, len(block["points"]), dependencies, block
         )
@@ -212,7 +230,10 @@ class _JointProblem:
           "kind": "prior",
           "group": name,
           "rows": rows,
-          "dependencies": [(name, "camera", camera_name)],
+          "dependencies": (
+            [("camera", camera_name), ("camera", group["reference"])]
+            if self.shared_cameras else [(name, "camera", camera_name)]
+          ),
           "payload": camera_name
         })
     self.residual_count = row_count
@@ -226,10 +247,19 @@ class _JointProblem:
     self.sparsity = sparsity.tocsr()
 
   def _transforms(self, parameters):
-    return {
+    transforms = {
       key: _parameters_to_transform(parameters[value])
       for key, value in self.slices.items()
     }
+    if self.shared_cameras:
+      for group in self.groups:
+        reference = transforms[("camera", group["reference"])]
+        transforms[(group["name"], "world")] = reference
+        for camera in group["cameras"]:
+          transforms[(group["name"], "camera", camera)] = (
+            transforms[("camera", camera)] @ np.linalg.inv(reference)
+          )
+    return transforms
 
   def _local_pose(self, transforms, group, camera_name):
     if camera_name == group["reference"]:

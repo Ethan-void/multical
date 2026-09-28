@@ -520,7 +520,7 @@ def test_measured_yaml_only_fallback_without_observe(tmp_path):
 
 
 @pytest.mark.parametrize("court,length,width", [
-  ("tennis", 23.77, 10.97), ("badminton", 13.4, 6.1)
+  ("tennis", 23.77, 10.97), ("badminton", 13.36, 6.06)
 ])
 def test_court_geometry_reaches_web_and_desktop(tmp_path, court, length, width):
   import matplotlib.pyplot as plt
@@ -552,11 +552,11 @@ def test_badminton_service_lines_and_net():
   from multical.app.worldpoints import court_geometry
   geometry = court_geometry("badminton")
   lines = geometry["lines"]
-  assert [.76, -3.05, .76, 3.05] in lines
-  assert [4.72, -3.05, 4.72, 3.05] in lines
-  assert [0, 0, 4.72, 0] in lines
-  assert [4.72, 0, 8.68, 0] not in lines
-  assert all(not (a == c == 6.7) for a, b, c, d in lines)
+  assert [.76, -3.03, .76, 3.03] in lines
+  assert [4.68, -3.03, 4.68, 3.03] in lines
+  assert [0, 0, 4.68, 0] in lines
+  assert [4.68, 0, 8.68, 0] not in lines
+  assert all(not (a == c == 6.66) for a, b, c, d in lines)
   assert geometry["net_center"] == 1.524
   assert geometry["net_post"] == 1.55
   with pytest.raises(ValueError, match="court"):
@@ -579,13 +579,13 @@ def test_web_badminton_snap_intersections():
     "console.log(JSON.stringify(courtAnchors()));"],
     check=True, capture_output=True, text=True)
   anchors = {(round(p["x"], 3), round(p["y"], 3)) for p in json.loads(result.stdout)}
-  for x in (.76, 4.72, 8.68, 12.64):
-    for y in (-3.05, -2.59, 0, 2.59, 3.05):
+  for x in (.76, 4.68, 8.68, 12.6):
+    for y in (-3.03, -2.57, 0, 2.57, 3.03):
       assert (x, y) in anchors
   assert (2.123, 1.456) in anchors
-  for point in ((10.01, 3.05), (10.02, 1.49), (10.03, 0.),
-                (10.04, -3.05), (10.04, -1.55), (12.03, 0.),
-                (12.03, 1.49), (12.04, -1.55)):
+  for point in ((10.005, 3.03), (10.01, 1.48), (10.02, 0.),
+                (10.05, -3.03), (10.03, -1.54), (12.03, 0.),
+                (12.02, 1.48), (12.03, -1.54)):
     assert point in anchors
   assert (5.485, 4.115) not in anchors
 
@@ -595,8 +595,8 @@ def test_badminton_fixed_anchors_without_marker_files(tmp_path):
     court="badminton", output=str(tmp_path / "measured.yaml")))
   anchors = state.payload()["court"]["snap_anchors"]
   assert len(anchors) == 13
-  assert {"x": 10.04, "y": -1.55} in anchors
-  assert {"x": 12.03, "y": 1.49} in anchors
+  assert {"x": 10.03, "y": -1.54} in anchors
+  assert {"x": 12.02, "y": 1.48} in anchors
   state.clear()
   assert state.payload()["court"]["snap_anchors"] == anchors
   from multical.app.worldpoints import court_geometry

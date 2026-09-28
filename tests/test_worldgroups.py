@@ -157,6 +157,26 @@ def test_merge_world_groups_rejects_duplicate_camera(tmp_path):
     )
 
 
+def test_merge_world_groups_overlap_keeps_first_camera_initialization(tmp_path):
+  intrinsic, calibrations, worlds, world01, _ = _inputs(tmp_path)
+  shifted = json.loads(Path(worlds[0]).read_text())
+  for record in shifted["cameras"].values():
+    pose = transform_from_json(record["world_to_camera"])
+    pose[0, 3] += 0.2
+    record["world_to_camera"] = transform_to_json(pose)
+  extra = _write_json(tmp_path / "extra.json", shifted)
+  result, _, _ = merge_world_groups(
+    intrinsic, calibrations + [calibrations[0]], worlds + [extra],
+    tmp_path / "merged.json", allow_overlap=True
+  )
+  assert len(result["groups"]) == 3
+  assert len(result["cameras"]) == 4
+  np.testing.assert_allclose(
+    transform_from_json(result["cameras"]["cam0"]["world_to_camera"]),
+    transform_from_json(world01["cameras"]["cam0"]["world_to_camera"])
+  )
+
+
 def test_merge_world_groups_rejects_changed_local_baseline(tmp_path):
   intrinsic, calibrations, worlds, _, world23 = _inputs(tmp_path)
   transform = transform_from_json(

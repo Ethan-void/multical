@@ -226,9 +226,9 @@ function courtAnchors() {
       }
     });
   });
-  [0, COURT.length / 2, COURT.length].forEach((x) => {
+  [0, COURT.net_x, COURT.length].forEach((x) => {
     [-halfDoubles,-halfSingles,0,halfSingles,halfDoubles].forEach((y) => {
-      anchors.push({x,y,inner:Math.abs(y) !== halfDoubles || x === COURT.length/2});
+      anchors.push({x,y,inner:Math.abs(y) !== halfDoubles || x === COURT.net_x});
     });
   });
   [...(COURT.snap_anchors || []), ...(state?.snap_anchors || [])].forEach((point) => {
@@ -262,7 +262,7 @@ function drawTop(exportCoordinates = false) {
   const xAxisY=-COURT.doubles/2-.65;
   line(0,xAxisY,COURT.length,xAxisY);
   ctx.textAlign="center";ctx.textBaseline="top";
-  [0, COURT.service, COURT.length/2, COURT.length-COURT.service, COURT.length].map((x) => [x,x.toFixed(3)]).forEach(([x,label])=>{
+  [0, COURT.service, COURT.net_x, COURT.length-COURT.service, COURT.length].map((x) => [x,x.toFixed(3)]).forEach(([x,label])=>{
     ctx.beginPath();ctx.moveTo(px(x),py(xAxisY)-4);ctx.lineTo(px(x),py(xAxisY)+4);ctx.stroke();
     ctx.fillText(label,px(x),py(xAxisY)+7);
   });
@@ -407,17 +407,17 @@ function draw3d() {
   ];
   fillPolygon(court,"#19704c");
   fillPolygon([
-    [COURT.service,-COURT.singles/2,0],[COURT.length/2,-COURT.singles/2,0],
-    [COURT.length/2,0,0],[COURT.service,0,0]
+    [COURT.service,-COURT.singles/2,0],[COURT.net_x,-COURT.singles/2,0],
+    [COURT.net_x,0,0],[COURT.service,0,0]
   ],"rgba(255,255,255,.045)");
   fillPolygon([
-    [COURT.length/2,0,0],[COURT.length-COURT.service,0,0],
-    [COURT.length-COURT.service,COURT.singles/2,0],[COURT.length/2,COURT.singles/2,0]
+    [COURT.net_x,0,0],[COURT.length-COURT.service,0,0],
+    [COURT.length-COURT.service,COURT.singles/2,0],[COURT.net_x,COURT.singles/2,0]
   ],"rgba(255,255,255,.045)");
 
   COURT.lines.forEach(([x0,y0,x1,y1]) => line([x0,y0,0],[x1,y1,0]));
 
-  const netX=COURT.length/2, netHalf=COURT.net_half;
+  const netX=COURT.net_x, netHalf=COURT.net_half;
   const netTop=(y)=>COURT.net_center+Math.abs(y)/netHalf*(COURT.net_post-COURT.net_center);
   const netFace=[];
   for(let i=0;i<=16;i++) { const y=-netHalf+i*netHalf/8; netFace.push([netX,y,netTop(y)]); }
@@ -442,7 +442,7 @@ function draw3d() {
   line([COURT.length,-COURT.doubles/2,0],[COURT.length,(-COURT.doubles/2-.765),0],dimensionColor,.7);
   drawDimensionScale([
     [[0,(-COURT.doubles/2-.765),.02],"0"],
-    [[COURT.length/2,(-COURT.doubles/2-.765),.02],(COURT.length/2).toFixed(3)],
+    [[COURT.net_x,(-COURT.doubles/2-.765),.02],COURT.net_x.toFixed(3)],
     [[COURT.length,(-COURT.doubles/2-.765),.02],COURT.length.toFixed(3)]
   ]);
   line([0,-COURT.doubles/2,0],[-1.45,-COURT.doubles/2,0],dimensionColor,.7);

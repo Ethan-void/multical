@@ -496,6 +496,16 @@ DATASET/extrinsic/calibration.initial.json
 
 `worldgroupba` 同时使用各组的外参观测、世界控制点和组内相机相对位姿，对全部相机进行联合优化。相对位姿先验用于限制优化偏离已经标定好的组内结构。
 
+对于 `20260907_badminton`，配置在 `01 / 24 / 35` 基础上增加了 `45`（cam4、cam5）：
+
+- `extrinsic_45` 从独立目录 `extrinsic_images_45/cam4`、`extrinsic_images_45/cam5` 读取两台相机的同步外参图像（不混入原 `extrinsic` 目录），`world_45` 使用 `world/world_markers_45.yaml`；标注入口为 `worldpoints_marker_45`。
+- `worldgroups.args.allow_overlap: true` 允许相机跨组出现，并保留列表中首次出现的相机位姿作为初值。因此将冗余组放在原三组之后；该输出仅用于初始化。
+- `worldgroupba` 遇到重叠组时，每台相机只优化一套世界位姿，各组仍使用自己的标定板帧位姿和相对位姿先验。新增组的 calibration、workspace、correspondences、group_names 和 relative_prior_weights 必须一一对应。
+- `45` 将 `24` 与 `35` 连接起来；`01` 仍通过世界控制点定位。需要有效的共同可见标定板观测，不能仅凭增加组数认定精度提高。重复使用的世界点标注也不代表新增独立测量。
+
+补齐各组世界点标注后，运行 `./pipeline all`。比较增加冗余组前后独立测量点的 `evaluate3d` 误差，判断是否保留该约束。
+
+
 pipeline 参数：
 
 ```yaml
