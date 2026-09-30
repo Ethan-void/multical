@@ -2,7 +2,7 @@
 set -eu
 
 REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-CONFIG=${MULTICAL_PIPELINE_CONFIG:-configs/pipeline.worldgroups.20260907_badminton.yaml}
+CONFIG=${MULTICAL_PIPELINE_CONFIG:-configs/pipeline.worldgroups.20260924.badminton.yaml}
 
 if [ "${1:-}" = "-c" ] || [ "${1:-}" = "--config" ]; then
   if [ "$#" -lt 2 ]; then
@@ -129,6 +129,11 @@ case "${1:-all}" in
       --config "$CONFIG" --stage "$STAGE" --resume "$@"
     ;;
   *)
+    # A leading path or keyword selects the config for this invocation.
+    case "$1" in
+      -*) ;;
+      *) CONFIG=$1; shift ;;
+    esac
     # Advanced mode: pass normal run_pipeline.py options directly.
     exec uv run python scripts/run_pipeline.py --config "$CONFIG" "$@"
     ;;

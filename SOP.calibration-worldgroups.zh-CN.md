@@ -6,32 +6,78 @@
 
 ## 快速开始
 
-复制四相机分组模板，创建本次采集使用的配置文件：
+编辑 `configs/pipeline.init.yaml`，按本次采集设置初始化参数。例如，四相机分成 `01`、`23` 两组：
 
-```bash
-cp configs/pipeline.example.4cam.worldgroups.DATASET.yaml \
-  configs/pipeline.DATASET.yaml
+```yaml
+dataset: DATASET
+# output_root: DATASET  # 可选，默认与 dataset 相同
+boards: boards/extrinsic/charuco_1600x1200/charuco_1600x1200.yaml
+world_board: boards/world/aruco_600x600/aruco_600x600.yaml
+auto_analyze: true
+court: badminton
+groups:
+  "01": [cam0, cam1]
+  "23": [cam2, cam3]
 ```
 
-编辑 `configs/pipeline.DATASET.yaml`，至少确认以下内容：
+- `dataset`：本次采集的数据目录；`output_root` 可另设为结果目录。
+- `boards`：内外参标定板配置；`world_board`：世界标记的 ID、中心高度等配置，均须与实际标定板一致。
+- `court`：`tennis`（网球场）或 `badminton`（羽毛球场），省略时默认 `tennis`。
+- `groups`：相机分组；相机列表由各组自动推导，组名用于生成阶段名及文件名。
+- `auto_analyze: true`：生成内外参标定完成后自动执行诊断报告的配置。
 
-- `dataset`：原始图片和人工测量文件所在目录。
-- `output_root`：标定结果输出目录；可与 `dataset` 相同。
-- `boards`：实际使用的标定板配置。
-- `cameras`：参与标定的全部相机名。
-- 分组中的 `cameras`、`master`、阶段名和输入输出路径。
-- `world_markers_*.yaml`：每个相机组对应的世界控制点文件。
-
-模板默认使用 `cam0/cam1` 和 `cam4/cam5` 两组；正文以下使用 `cam0/cam1` 和 `cam2/cam3` 举例。实际使用时必须在整个配置和数据目录中统一相机名及组名。
-
-准备好数据目录和输入文件后，先检查阶段及命令，不直接执行标定：
+初始化目录和实验配置：
 
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml list
-./pipeline --config configs/pipeline.DATASET.yaml dry-run
+./pipeline init
 ```
 
-确认路径、相机分组和输出目录正确后，再按照后续章节逐阶段执行。
+该命令创建数据目录结构及 `configs/pipeline.worldgroups.DATASET.yaml`，并将其设为 `./pipeline` 的默认配置。
+
+默认配置保存在项目根目录的 `pipeline` 脚本顶部，`CONFIG=${MULTICAL_PIPELINE_CONFIG:-...}` 中的 `...` 即默认配置文件路径。可直接修改该路径，也可通过以下命令切换默认配置：
+
+```bash
+./pipeline use configs/pipeline.worldgroups.DATASET.yaml
+```
+
+一般指令可在子命令前加 `--config`（简写 `-c`）指定本次使用的配置文件，不会修改默认配置，例如：
+
+```bash
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml list
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage intrinsic
+./pipeline -c configs/pipeline.worldgroups.DATASET.yaml all
+```
+
+省略 `--config` 时使用默认配置；若设置了环境变量 `MULTICAL_PIPELINE_CONFIG`，则优先使用该变量指定的配置。优先级为：命令行 `--config` > 环境变量 > 脚本内默认路径。
+
+`DATASET` 对应 `dataset` 路径的最后一级目录名。重复初始化会补齐目录并保留已有实验配置；只有需要重新生成配置时才使用 `./pipeline init --force`，该选项会覆盖已有实验配置。
+
+以上述 `dataset: DATASET` 为例，初始化后创建：
+
+```text
+项目根目录/
+├── configs/
+│   └── pipeline.worldgroups.DATASET.yaml  # 本次实验的完整流水线配置
+└── DATASET/
+    ├── intrinsic/                       # 各相机内参采集图片
+    ├── extrinsic/                       # 各组相机同步外参图片
+    ├── world/
+    │   └── world_images/                # 世界控制点图片
+    └── observe/
+        └── measured_points/             # 独立 3D 验收点图片
+```
+
+初始化只创建以上基础目录和实验配置。放入图片时，在各图片目录下按实际相机名创建 `cam0/`、`cam1/` 等子目录，例如 `DATASET/intrinsic/cam0/000001.jpg`。世界点 YAML 通过后文的世界坐标编辑器保存；标定结果、`reports/` 等由对应阶段执行后生成，完整输入输出结构见第 2 节。
+
+将采集图片放入对应目录，检查生成配置中的路径、分组及参数，再预览并开始内参标定：
+
+```bash
+./pipeline list
+./pipeline dry-run
+./pipeline stage intrinsic
+```
+
+后续按正文逐阶段执行。本文命令统一显式指定 `configs/pipeline.worldgroups.DATASET.yaml`；使用初始化后选定的默认配置时，可省略 `--config`。仓库当前初始化配置使用 `01 / 24 / 35` 三组，正文使用 `01 / 23` 两组举例，请按实际分组替换阶段后缀和相机名。
 
 ## 1. 流程总览
 
@@ -189,8 +235,11 @@ stages:
 执行内参标定：
 
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml stage intrinsic
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage intrinsic
 ```
+
+也可用配置文件名中的唯一关键词临时选择配置，例如 `./pipeline 0924 --stage intrinsic`。
+先加上 `--dry-run` 可预览命令；关键词匹配多个配置时会报错并列出候选文件。
 
 主要输出：
 
@@ -201,8 +250,10 @@ DATASET/intrinsic/distortion_check/
 
 生成指标诊断报告：
 
+已自动生成报告时无需重复执行；需要单独生成或重新生成时执行：
+
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml stage analyze_intrinsic
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage analyze_intrinsic
 ```
 
 检查项目：
@@ -211,7 +262,7 @@ DATASET/intrinsic/distortion_check/
 - 垂直水平覆盖率大于 80%。
 - `distortion_check/` 中直线去畸变后是否自然。
 
-## 5. 采集并标定相机间外参 —— 多相机分组世界对齐方案
+## 5. 采集并标定相机间外参
 
 分成若干组双目，按组分别采集组内共同帧，假设有四目，分成两组，每组独立，
 
@@ -290,10 +341,10 @@ extrinsic_23:
 
 ```bash
 # cam0-cam1的外参标定
-./pipeline --config configs/pipeline.DATASET.yaml stage extrinsic_01
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage extrinsic_01
 
 # cam2-cam3的外参标定
-./pipeline --config configs/pipeline.DATASET.yaml stage extrinsic_23
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage extrinsic_23
 ```
 
 主要输出：
@@ -308,10 +359,12 @@ DATASET/extrinsic_01/distortion_check/
 
 生成指标诊断报告：
 
-```bash
-./pipeline --config configs/pipeline.DATASET.yaml stage analyze_extrinsic_01
+已自动生成报告时无需重复执行；需要单独生成或重新生成时执行：
 
-./pipeline --config configs/pipeline.DATASET.yaml stage analyze_extrinsic_23
+```bash
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage analyze_extrinsic_01
+
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage analyze_extrinsic_23
 ```
 
 检查项目：
@@ -409,6 +462,20 @@ world/world_images/cam1/000001.jpg
 
 质量预筛只作用于世界坐标标记观测，不会改变此前的内参或相机间外参标定。
 
+### 6.4 世界坐标编辑器：`worldpoints_marker_01`
+
+可用世界坐标编辑器录入、修改第 6.3 节的控制点文件：
+
+```bash
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage worldpoints_marker_01
+```
+
+该阶段使用 `mode: markers`，读取 `world/world_images` 中的图片和 `world_board` 定义的标记 ID、中心高度，在场地视图中编辑各采集位置的世界坐标，保存到 `world/world_markers_01.yaml`。检查采集名称与图片文件名一致，坐标以现场实测值为准；场地线和吸附点仅辅助定位。
+
+其他相机组使用对应后缀，例如 `worldpoints_marker_23`。初始化会按 `groups` 自动生成这些阶段；它们设置为 `enabled: false`、`interactive: true`，执行 `all` 时跳过，需要用 `stage` 显式打开。
+
+编辑器通过 `court` 切换网球场或羽毛球场，坐标原点位于近端底线中心，X 沿场地长度方向、Y 沿宽度方向、Z 向上，单位为米。切换场地不会自动换算已保存坐标。
+
 ## 7. 标定世界外参
 
 pipeline 参数：
@@ -436,10 +503,10 @@ world_01:
 
 ```bash
 # cam0-cam1
-./pipeline --config configs/pipeline.DATASET.yaml stage world_01
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage world_01
 
 # cam2-cam3
-./pipeline --config configs/pipeline.DATASET.yaml stage world_23
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage world_23
 ```
 
 主要输出：
@@ -480,7 +547,7 @@ worldgroups:
 执行：
 
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml stage worldgroups
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage worldgroups
 ```
 
 主要输出：
@@ -504,7 +571,6 @@ DATASET/extrinsic/calibration.initial.json
 - `45` 将 `24` 与 `35` 连接起来；`01` 仍通过世界控制点定位。需要有效的共同可见标定板观测，不能仅凭增加组数认定精度提高。重复使用的世界点标注也不代表新增独立测量。
 
 补齐各组世界点标注后，运行 `./pipeline all`。比较增加冗余组前后独立测量点的 `evaluate3d` 误差，判断是否保留该约束。
-
 
 pipeline 参数：
 
@@ -541,7 +607,7 @@ worldgroupba:
 执行：
 
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml stage worldgroupba
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage worldgroupba
 ```
 
 最终输出：
@@ -617,7 +683,7 @@ pipeline 配置：
 执行：
 
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml stage observe
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage observe
 ```
 
 点击要求：
@@ -626,6 +692,25 @@ pipeline 配置：
 - 看不见或被遮挡的相机不要猜测点击。
 - 每个点至少需要两个有效相机观测。
 - 放大确认目标中心，避免一个相机点底部、另一个相机点顶部。
+
+### 9.1 世界坐标编辑器：`worldpoints_measured`
+
+完成 `observe` 像素标注后，可通过编辑器录入“单图多点”或“多图单点”验收点的实测世界坐标。两种模式均使用同一个阶段 `worldpoints_measured`，编辑器根据观测文件中的点名及来源图片自动识别：
+
+```bash
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage worldpoints_measured
+```
+
+该阶段使用 `mode: measured`，读取 `observe/measured_observations.yaml` 中的点名及观测，选择验收点、核对对应图片中的像素标注，再录入实测 X、Y、Z，保存到 `measured_world_points.yaml`，供 `evaluate3d` 作为真值使用。点名必须与观测文件一致；这里编辑的是世界坐标，像素位置仍通过 `observe` 标注。
+
+两种模式的操作方式：
+
+- **单图多点**：在 `observe.args` 中设置 `frame: 000000.jpg`，使用各相机的同名图片标注多个验收点（如 `P01`、`P02`）。保存像素观测后打开上述编辑器，逐个选择点名，核对同一帧中的对应标注并填写各点实测坐标。真值文件以 `P01`、`P02` 等点名为键，示例见第 8 节。
+- **多图单点**：省略或注释 `observe.args.frame`，逐帧标注每张图片中的一个验收点。保存后打开上述编辑器，逐个选择图片对应的点并填写实测坐标；默认以 `000000.jpg`、`000001.jpg` 等帧名为真值文件的键。
+
+模式由 `observe` 的采集与标注方式决定，无须为世界坐标编辑器另设模式参数；两种情况均保持 `mode: measured`。
+
+该交互阶段同样不会随 `all` 自动打开，应在执行最终验收前单独完成。验收点须保持独立，不要将世界标定控制点或三角化结果作为实测真值。
 
 ## 10. 三角化
 
@@ -654,7 +739,7 @@ pipeline 参数：
 执行：
 
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml stage triangulate
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage triangulate
 ```
 
 输出：
@@ -686,7 +771,7 @@ evaluate3d:
 执行：
 
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml stage evaluate3d
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage evaluate3d
 ```
 
 输出：
@@ -712,9 +797,9 @@ DATASET/reports/evaluation3d.xlsx
 ## 12. 生成标定分析报告
 
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml analyze intrinsic
-./pipeline --config configs/pipeline.DATASET.yaml analyze extrinsic
-./pipeline --config configs/pipeline.DATASET.yaml analyze all
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml analyze intrinsic
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml analyze extrinsic
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml analyze all
 ```
 
 输出位于：
@@ -730,8 +815,8 @@ DATASET/reports/calibration_analysis.xlsx
 验证图片不应与正式标定图片重复。
 
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml stage validate_intrinsic
-./pipeline --config configs/pipeline.DATASET.yaml stage validate_extrinsic
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage validate_intrinsic
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage validate_extrinsic
 ```
 
 外参验证阶段固定内参和相机位姿，只估计标定板姿态：
@@ -748,14 +833,14 @@ fix_camera_poses: true
 先检查配置和即将执行的命令：
 
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml dry-run
-./pipeline --config configs/pipeline.DATASET.yaml list
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml dry-run
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml list
 ```
 
 执行所有已启用阶段：
 
 ```bash
-./pipeline --config configs/pipeline.DATASET.yaml all
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml all
 ```
 
 流水线会记录：
@@ -769,18 +854,18 @@ fix_camera_poses: true
 
 ```bash
 # 强制重跑单个阶段
-./pipeline --config configs/pipeline.DATASET.yaml stage world_01 --force
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage world_01 --force
 
 # 从外参开始运行，到世界外参结束
-./pipeline --config configs/pipeline.DATASET.yaml \
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml \
   --stage all --from-stage extrinsic_01 --to-stage world_01 --resume
 
 # 只执行三角化和验收
-./pipeline --config configs/pipeline.DATASET.yaml \
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml \
   --stage triangulate,evaluate3d --resume
 
 # 同时补齐所选阶段的前置依赖
-./pipeline --config configs/pipeline.DATASET.yaml \
+./pipeline --config configs/pipeline.worldgroups.DATASET.yaml \
   --stage evaluate3d --with-deps --resume
 ```
 

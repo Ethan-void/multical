@@ -320,7 +320,7 @@ def render_experiment_config(
   for name, stage in old_stages.items():
     if (
         name.startswith("worldpoints_marker_")
-        or name == "worldpoints_measured_single"
+        or name in ("worldpoints_measured", "worldpoints_measured_single")
     ):
       continue
     if name == "analyze_intrinsic":
@@ -348,7 +348,7 @@ def render_experiment_config(
       continue
     new_stages[name] = stage
   new_stages.update(generated_worldpoints)
-  new_stages["worldpoints_measured_single"] = {
+  new_stages["worldpoints_measured"] = {
     "enabled": False,
     "interactive": True,
     "command": "worldpoints",

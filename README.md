@@ -388,7 +388,7 @@ Tasnim Tabassum Nova
 在 `configs/pipeline.init.yaml` 中设置 `court: tennis`（网球场）或
 `court: badminton`（羽毛球场），然后执行 `./pipeline init`。
 省略 `court` 时默认使用网球场。生成的所有 `worldpoints_marker_*` 和
-`worldpoints_measured_single` 步骤都通过 `court: '{court}'` 引用场地配置，
+`worldpoints_measured` 步骤都通过 `court: '{court}'` 引用场地配置，
 网页和桌面编辑器使用同一套场地线条与尺寸；网页的刻度和吸附点同步切换。
 坐标原点保持在近端底线中心，X 沿场地长度方向，Y 沿宽度方向，Z 向上，单位为米。
 

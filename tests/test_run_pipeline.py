@@ -78,7 +78,7 @@ def test_initialize_experiment_creates_tree_and_rendered_config(
   assert stages["worldpoints_marker_45"]["args"]["world_board"] == (
     "boards/world_boards/标定板图案设计.yaml"
   )
-  assert stages["worldpoints_measured_single"]["args"]["observe"] == (
+  assert stages["worldpoints_measured"]["args"]["observe"] == (
     str(dataset / "observe" / "measured_observations.yaml")
   )
   stage_names = list(stages)
@@ -337,7 +337,7 @@ def test_worldpoints_existing_measured_yaml_allows_missing_observe(tmp_path):
   output = tmp_path / "measured_world_points.yaml"
   output.write_text("points: {}\n", encoding="utf-8")
   stage = {
-    "name": "worldpoints_measured_single",
+    "name": "worldpoints_measured",
     "command": "worldpoints",
     "args": {
       "mode": "measured",
@@ -675,6 +675,8 @@ def test_launcher_accepts_config_before_and_after_stage(tmp_path):
   launcher = str(SCRIPT.parents[1] / "pipeline")
   for args in [
       ["--config", "0811", "stage", "intrinsic"],
+      ["0811", "--stage", "intrinsic"],
+      ["--config", "0811", "--stage", "intrinsic"],
       ["stage", "--config", "0811", "intrinsic"],
       ["stage", "-c", "0811", "intrinsic"]]:
     result = subprocess.run(["sh", launcher, *args, "--dry-run"],
