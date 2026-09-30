@@ -20,11 +20,13 @@ groups:
   "23": [cam2, cam3]
 ```
 
-- `dataset`：本次采集的数据目录；`output_root` 可另设为结果目录。
+- `dataset`：本次采集的数据目录基础名，初始化会追加 `.<court>`（如 `.badminton`）；`output_root` 可另设为结果目录。
 - `boards`：内外参标定板配置；`world_board`：世界标记的 ID、中心高度等配置，均须与实际标定板一致。
 - `court`：`tennis`（网球场）或 `badminton`（羽毛球场），省略时默认 `tennis`。
 - `groups`：相机分组；相机列表由各组自动推导，组名用于生成阶段名及文件名。
 - `auto_analyze: true`：生成内外参标定完成后自动执行诊断报告的配置。
+
+`configs/pipeline.default.yaml` 提供完整阶段和默认参数，`init` 按 `groups` 动态生成实际分组；两组、三组、四组等均使用这一份模板，不再依赖 example 文件。
 
 初始化目录和实验配置：
 
@@ -32,33 +34,33 @@ groups:
 ./pipeline init
 ```
 
-该命令创建数据目录结构及 `configs/pipeline.worldgroups.DATASET.yaml`，并将其设为 `./pipeline` 的默认配置。
+该命令创建数据目录结构及 `configs/pipeline.worldgroups.DATASET.badminton.yaml`，并将其设为 `./pipeline` 的默认配置。
 
 默认配置保存在项目根目录的 `pipeline` 脚本顶部，`CONFIG=${MULTICAL_PIPELINE_CONFIG:-...}` 中的 `...` 即默认配置文件路径。可直接修改该路径，也可通过以下命令切换默认配置：
 
 ```bash
-./pipeline use configs/pipeline.worldgroups.DATASET.yaml
+./pipeline use configs/pipeline.worldgroups.DATASET.badminton.yaml
 ```
 
 一般指令可在子命令前加 `--config`（简写 `-c`）指定本次使用的配置文件，不会修改默认配置，例如：
 
 ```bash
-./pipeline --config configs/pipeline.worldgroups.DATASET.yaml list
-./pipeline --config configs/pipeline.worldgroups.DATASET.yaml stage intrinsic
-./pipeline -c configs/pipeline.worldgroups.DATASET.yaml all
+./pipeline --config configs/pipeline.worldgroups.DATASET.badminton.yaml list
+./pipeline --config configs/pipeline.worldgroups.DATASET.badminton.yaml stage intrinsic
+./pipeline -c configs/pipeline.worldgroups.DATASET.badminton.yaml all
 ```
 
 省略 `--config` 时使用默认配置；若设置了环境变量 `MULTICAL_PIPELINE_CONFIG`，则优先使用该变量指定的配置。优先级为：命令行 `--config` > 环境变量 > 脚本内默认路径。
 
-`DATASET` 对应 `dataset` 路径的最后一级目录名。重复初始化会补齐目录并保留已有实验配置；只有需要重新生成配置时才使用 `./pipeline init --force`，该选项会覆盖已有实验配置。
+例如 `dataset: 20260924`、`court: badminton` 会创建 `20260924.badminton/` 和 `configs/pipeline.worldgroups.20260924.badminton.yaml`。已有 `.badminton`、`_badminton` 或 `-badminton` 等场地后缀会统一为点号形式，不重复追加；网球对应 `.tennis`。显式设置的 `output_root` 保持原路径，省略时与生成的数据目录相同。已有旧目录不会自动重命名或搬迁图片。重复初始化会补齐目录并保留已有实验配置；只有需要重新生成配置时才使用 `./pipeline init --force`，该选项会覆盖已有实验配置。
 
 以上述 `dataset: DATASET` 为例，初始化后创建：
 
 ```text
 项目根目录/
 ├── configs/
-│   └── pipeline.worldgroups.DATASET.yaml  # 本次实验的完整流水线配置
-└── DATASET/
+│   └── pipeline.worldgroups.DATASET.badminton.yaml  # 本次实验的完整流水线配置
+└── DATASET.badminton/
     ├── intrinsic/                       # 各相机内参采集图片
     ├── extrinsic/                       # 各组相机同步外参图片
     ├── world/
@@ -67,7 +69,7 @@ groups:
         └── measured_points/             # 独立 3D 验收点图片
 ```
 
-初始化只创建以上基础目录和实验配置。放入图片时，在各图片目录下按实际相机名创建 `cam0/`、`cam1/` 等子目录，例如 `DATASET/intrinsic/cam0/000001.jpg`。世界点 YAML 通过后文的世界坐标编辑器保存；标定结果、`reports/` 等由对应阶段执行后生成，完整输入输出结构见第 2 节。
+初始化只创建以上基础目录和实验配置。放入图片时，在各图片目录下按实际相机名创建 `cam0/`、`cam1/` 等子目录，例如 `DATASET.badminton/intrinsic/cam0/000001.jpg`。世界点 YAML 通过后文的世界坐标编辑器保存；标定结果、`reports/` 等由对应阶段执行后生成，完整输入输出结构见第 2 节。
 
 将采集图片放入对应目录，检查生成配置中的路径、分组及参数，再预览并开始内参标定：
 
@@ -77,7 +79,7 @@ groups:
 ./pipeline stage intrinsic
 ```
 
-后续按正文逐阶段执行。本文命令统一显式指定 `configs/pipeline.worldgroups.DATASET.yaml`；使用初始化后选定的默认配置时，可省略 `--config`。仓库当前初始化配置使用 `01 / 24 / 35` 三组，正文使用 `01 / 23` 两组举例，请按实际分组替换阶段后缀和相机名。
+后续按正文逐阶段执行。后文的 `DATASET` 表示包含场地后缀的完整目录名（如 `20260924.badminton`），命令中的配置路径应对应替换；使用初始化后选定的默认配置时，可省略 `--config`。仓库当前初始化配置使用 `01 / 24 / 35` 三组，正文使用 `01 / 23` 两组举例，请按实际分组替换阶段后缀和相机名。
 
 ## 1. 流程总览
 

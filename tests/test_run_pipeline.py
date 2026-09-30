@@ -136,7 +136,12 @@ def test_initialize_from_settings_file(tmp_path, monkeypatch, court):
       command = pipeline.command_for(stage)
       assert command[command.index("--court") + 1] == (court or "tennis")
 
-  assert config_path == tmp_path / "configs/pipeline.worldgroups.capture.yaml"
+  dataset = dataset.with_name("capture.{}".format(court or "tennis"))
+  assert config_path == tmp_path / "configs" / (
+    "pipeline.worldgroups.{}.yaml".format(dataset.name)
+  )
+  for relative_path in pipeline.EXPERIMENT_DIRECTORIES:
+    assert (dataset / relative_path).is_dir()
   config = pipeline.load_config(config_path)
   assert config["variables"]["dataset"] == str(dataset)
   assert config["variables"]["output_root"] == str(dataset)
@@ -146,6 +151,37 @@ def test_initialize_from_settings_file(tmp_path, monkeypatch, court):
   assert config["stages"]["worldgroups"]["args"]["group_names"] == [
     "group01", "group45"
   ]
+
+
+
+@pytest.mark.parametrize("name", [
+  "20260924", "20260924.badminton", "20260924_badminton",
+  "20260924-badminton",
+])
+def test_init_settings_normalizes_court_suffix(tmp_path, monkeypatch, name):
+  monkeypatch.setattr(pipeline, "REPO_ROOT", tmp_path)
+  launcher = tmp_path / "pipeline"
+  launcher.write_text("CONFIG=${MULTICAL_PIPELINE_CONFIG:-configs/old.yaml}\n")
+  settings = tmp_path / "init.yaml"
+  output_root = tmp_path / "results"
+  settings.write_text(yaml.safe_dump({
+    "dataset": str(tmp_path / name),
+    "court": "badminton",
+    "output_root": str(output_root),
+    "groups": {"01": ["cam0", "cam1"]},
+  }))
+  config_path = pipeline.initialize_from_settings(settings)
+  assert config_path.name == "pipeline.worldgroups.20260924.badminton.yaml"
+  config = pipeline.load_config(config_path)
+  dataset = tmp_path / "20260924.badminton"
+  assert config["variables"]["dataset"] == str(dataset)
+  assert config["variables"]["output_root"] == str(output_root)
+  assert config["stages"]["worldpoints_measured"]["args"]["observe"] == str(
+    dataset / "observe/measured_observations.yaml")
+  assert config_path.name in launcher.read_text()
+  config_path.write_text("custom: true\n")
+  assert pipeline.initialize_from_settings(settings) == config_path
+  assert config_path.read_text() == "custom: true\n"
 
 
 def test_initialize_experiment_keeps_config_unless_forced(tmp_path):
@@ -717,3 +753,34 @@ def test_copy_calibration_passes_court_to_layout(tmp_path, monkeypatch):
   pipeline.copy_calibration((source, destination), render_layout=True, court="badminton")
   assert destination.read_text() == '{}'
   assert calls == [(destination, "badminton")]
+
+
+@pytest.mark.parametrize("group_count", [2, 3, 4])
+@pytest.mark.parametrize("auto_analyze", [True, False])
+def test_default_template_supports_dynamic_groups(tmp_path, group_count, auto_analyze):
+  cameras = ["cam{}".format(i) for i in range(group_count * 2)]
+  groups = [("{}{}".format(i, i + 1), cameras[i:i + 2])
+            for i in range(0, len(cameras), 2)]
+  config_path = pipeline.initialize_experiment(
+    tmp_path / "capture.tennis", config_dir=tmp_path / "configs",
+    cameras=cameras, groups=groups, auto_analyze=auto_analyze,
+  )
+  config = pipeline.load_config(config_path)
+  stages = config["stages"]
+  assert ("then" in stages["intrinsic"]) == auto_analyze
+  assert stages["worldgroups"]["needs"] == ["world_" + label for label, _ in groups]
+  assert stages["worldgroupba"]["args"]["group_names"] == [
+    "group" + label for label, _ in groups]
+  assert config["variables"]["cameras"] == cameras
+  for label, members in groups:
+    extrinsic = stages["extrinsic_" + label]
+    assert extrinsic["args"]["cameras"] == members
+    assert ("then" in extrinsic) == auto_analyze
+    if auto_analyze:
+      assert extrinsic["then"] == ["analyze_extrinsic_" + label]
+    assert stages["analyze_extrinsic_" + label]["needs"] == ["extrinsic_" + label]
+    assert "worldpoints_marker_" + label in stages
+  assert "worldpoints_measured" in stages
+  for stage in stages.values():
+    for key in ("needs", "then"):
+      assert set(stage.get(key, [])) <= stages.keys()

@@ -38,7 +38,7 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".ppm", ".bmp"}
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INIT_TEMPLATE = (
   REPO_ROOT / "configs" /
-  "pipeline.example.6cam.worldgroups.DATASET.yaml"
+  "pipeline.default.yaml"
 )
 EXPERIMENT_DIRECTORIES = (
   "intrinsic",
@@ -226,6 +226,7 @@ def render_experiment_config(
   generated_worldpoints = {}
   for label, members in groups:
     extrinsic = copy.deepcopy(extrinsic_template)
+    extrinsic.pop("then", None)
     extrinsic["needs"] = ["intrinsic"]
     extrinsic["args"].update({
       "cameras": FlowList(members),
@@ -502,15 +503,17 @@ def initialize_from_settings(
 
   template_value = template_override or settings.get("template")
   template = Path(str(template_value)) if template_value else None
+  court = settings.get("court", "tennis")
+  if court not in ("tennis", "badminton"):
+    raise PipelineError("init settings court must be tennis or badminton")
   dataset = Path(str(settings["dataset"]))
+  dataset_stem = re.sub(r"[._-](?:tennis|badminton)$", "", dataset.name)
+  dataset = dataset.with_name("{}.{}".format(dataset_stem, court))
   output_value = settings.get("output_root")
   output_root = Path(str(output_value)) if output_value else dataset
   auto_analyze = settings.get("auto_analyze", True)
   if not isinstance(auto_analyze, bool):
     raise PipelineError("init settings auto_analyze must be true or false")
-  court = settings.get("court", "tennis")
-  if court not in ("tennis", "badminton"):
-    raise PipelineError("init settings court must be tennis or badminton")
   return initialize_experiment(
     dataset,
     court=court,

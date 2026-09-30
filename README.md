@@ -32,10 +32,19 @@ pipeline configuration with one command:
 ./pipeline init
 ```
 
+With init settings, the dataset directory gets a dot-separated court suffix: for
+example, `dataset: 20260924` and `court: badminton` create
+`20260924.badminton/` and `configs/pipeline.worldgroups.20260924.badminton.yaml`.
+Existing `.badminton`, `_badminton`, or `-badminton` suffixes are normalized;
+tennis uses `.tennis`. Existing directories are not moved or renamed. An explicit
+`output_root` is preserved. Here `DATASET` denotes the resulting directory name.
+
 This creates `DATASET/intrinsic`, `DATASET/extrinsic`,
 `DATASET/world/world_images`, `DATASET/observe/measured_points`, and
 `configs/pipeline.worldgroups.DATASET.yaml`. The generated YAML contains the
-absolute dataset path and uses the six-camera worldgroups example by default.
+absolute dataset path and uses `configs/pipeline.default.yaml` by default.
+This single template supports any configured number of camera groups; separate
+example templates are not required.
 The generated stages, calibration paths, world-marker paths, and group names
 follow the supplied cameras and groups. `boards` defaults to
 `boards/charuco_1600x1200.yaml`; override it with `--boards`. To start from

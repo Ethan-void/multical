@@ -1,7 +1,9 @@
 variables:
   dataset: DATASET
-  boards: boards/extrinsic/charuco_1600x1200.yaml
-  cameras: &cameras [cam0, cam1,cam2,cam3,cam4, cam5]
+  boards: boards/extrinsic/charuco_1600x1200/charuco_1600x1200.yaml
+  world_board: boards/world/aruco_600x600/aruco_600x600.yaml
+  court: tennis  # tennis 或 badminton，须与数据目录后缀一致
+  cameras: &cameras [cam0, cam1, cam2, cam3, cam4, cam5]
   output_root: DATASET
 
 state_file: "{output_root}/pipeline_state.json"
@@ -10,7 +12,9 @@ env:
   OPENCV_OPENCL_RUNTIME: disabled
 
 stages:
+  # 内参标定及诊断报告
   intrinsic:
+    then: [analyze_intrinsic]  # 标定成功后自动生成诊断报告
     command: intrinsic
     group: calibration
     args:
@@ -22,7 +26,18 @@ stages:
       output_path: "{output_root}/intrinsic"
       name: intrinsic
 
+  analyze_intrinsic:
+    enabled: false
+    needs: [intrinsic]
+    command: analyze
+    group: intrinsic_analysis
+    args:
+      intrinsic: "{output_root}/intrinsic/intrinsic.json"
+      output: "{output_root}/reports/intrinsic_analysis.xlsx"
+
+  # 各相机组固定内参，独立计算相机间外参及报告
   extrinsic_01:
+    then: [analyze_extrinsic_01]  # 标定成功后自动生成诊断报告
     command: calibrate
     group: local_stereo
     needs: [intrinsic]
@@ -39,7 +54,18 @@ stages:
       output_path: "{output_root}/extrinsic_01"
       name: calibration
 
+  analyze_extrinsic_01:
+    enabled: false
+    needs: [extrinsic_01]
+    command: analyze
+    group: extrinsic_analysis
+    args:
+      extrinsic: "{output_root}/extrinsic_01/calibration.json"
+      workspace: "{output_root}/extrinsic_01/calibration.pkl"
+      output: "{output_root}/reports/extrinsic_analysis_01.xlsx"
+
   extrinsic_24:
+    then: [analyze_extrinsic_24]  # 标定成功后自动生成诊断报告
     command: calibrate
     group: local_stereo
     needs: [intrinsic]
@@ -49,14 +75,25 @@ stages:
       cameras: [cam2, cam4]
       calibration: "{output_root}/intrinsic/intrinsic.json"
       fix_intrinsic: true
-      master: cam4
+      master: cam2
       loss: soft_l1
       warmup_before_outlier_rejection: true
       iter: 3
       output_path: "{output_root}/extrinsic_24"
       name: calibration
 
+  analyze_extrinsic_24:
+    enabled: false
+    needs: [extrinsic_24]
+    command: analyze
+    group: extrinsic_analysis
+    args:
+      extrinsic: "{output_root}/extrinsic_24/calibration.json"
+      workspace: "{output_root}/extrinsic_24/calibration.pkl"
+      output: "{output_root}/reports/extrinsic_analysis_24.xlsx"
+
   extrinsic_35:
+    then: [analyze_extrinsic_35]  # 标定成功后自动生成诊断报告
     command: calibrate
     group: local_stereo
     needs: [intrinsic]
@@ -73,7 +110,17 @@ stages:
       output_path: "{output_root}/extrinsic_35"
       name: calibration
 
+  analyze_extrinsic_35:
+    enabled: false
+    needs: [extrinsic_35]
+    command: analyze
+    group: extrinsic_analysis
+    args:
+      extrinsic: "{output_root}/extrinsic_35/calibration.json"
+      workspace: "{output_root}/extrinsic_35/calibration.pkl"
+      output: "{output_root}/reports/extrinsic_analysis_35.xlsx"
 
+  # 使用实测世界控制点，将各组对齐到世界坐标系
   world_01:
     command: worldmulti
     group: world_control
@@ -96,7 +143,6 @@ stages:
       ransac_threshold: 3.0
       loss: soft_l1
 
-
   world_35:
     command: worldmulti
     group: world_control
@@ -108,6 +154,7 @@ stages:
       ransac_threshold: 3.0
       loss: soft_l1
 
+  # 合并各组世界外参，生成联合优化初值
   worldgroups:
     command: worldgroups
     group: reconstruction
@@ -127,6 +174,7 @@ stages:
       output: "{output_root}/world/world_extrinsic.initial.json"
       calibration_output: "{output_root}/extrinsic/calibration.initial.json"
 
+  # 联合优化最终世界外参，后续三角化使用此结果
   worldgroupba:
     command: worldgroupba
     group: reconstruction
@@ -146,7 +194,7 @@ stages:
         - "{dataset}/world/world_markers_01.yaml"
         - "{dataset}/world/world_markers_24.yaml"
         - "{dataset}/world/world_markers_35.yaml"
-      group_names: [group01, group24,group35]
+      group_names: [group01, group24, group35]
       master: cam0
       ransac_threshold: 3.0
       loss: soft_l1
@@ -159,6 +207,7 @@ stages:
       output: "{output_root}/world/world_extrinsic.json"
       calibration_output: "{output_root}/extrinsic/calibration.json"
 
+  # 交互标注独立验收点的像素坐标
   observe:
     enabled: false
     interactive: true
@@ -168,10 +217,12 @@ stages:
       image_path: "{dataset}/observe/measured_points"
       cameras: *cameras
       output: "{dataset}/observe/measured_observations.yaml"
+      # 单图多点：指定同名同步帧；多图单点：注释 frame。
       frame: 000000.jpg
       columns: 3
       tile_width: 640
 
+  # 重建独立验收点，再与实测真值比较
   triangulate:
     command: triangulate
     group: reconstruction
@@ -198,29 +249,51 @@ stages:
       max_p95_error: 0.10
       max_error: 0.20
 
-
-  analyze_intrinsic:
+  # 交互编辑世界控制点；按实际 groups 生成各组入口
+  worldpoints_marker_01:
     enabled: false
-    command: analyze
-    group: intrinsic_analysis
+    interactive: true
+    command: worldpoints
+    group: worldpoints_marker
     args:
-      intrinsic: "{output_root}/intrinsic/intrinsic.json"
-      output: "{output_root}/reports/intrinsic_analysis.xlsx"
+      mode: markers
+      court: "{court}"
+      image_path: "{dataset}/world/world_images"
+      world_board: "{world_board}"
+      output: "{dataset}/world/world_markers_01.yaml"
 
-  analyze_extrinsic_01:
+  worldpoints_marker_24:
     enabled: false
-    command: analyze
-    group: extrinsic_analysis
+    interactive: true
+    command: worldpoints
+    group: worldpoints_marker
     args:
-      extrinsic: "{output_root}/extrinsic_01/calibration.json"
-      workspace: "{output_root}/extrinsic_01/calibration.pkl"
-      output: "{output_root}/reports/extrinsic_analysis_01.xlsx"
+      mode: markers
+      court: "{court}"
+      image_path: "{dataset}/world/world_images"
+      world_board: "{world_board}"
+      output: "{dataset}/world/world_markers_24.yaml"
 
-  analyze_extrinsic_45:
+  worldpoints_marker_35:
     enabled: false
-    command: analyze
-    group: extrinsic_analysis
+    interactive: true
+    command: worldpoints
+    group: worldpoints_marker
     args:
-      extrinsic: "{output_root}/extrinsic_45/calibration.json"
-      workspace: "{output_root}/extrinsic_45/calibration.pkl"
-      output: "{output_root}/reports/extrinsic_analysis_45.xlsx"
+      mode: markers
+      court: "{court}"
+      image_path: "{dataset}/world/world_images"
+      world_board: "{world_board}"
+      output: "{dataset}/world/world_markers_35.yaml"
+
+  # 单图多点、多图单点共用此入口；先执行 observe 并保存像素标注。
+  worldpoints_measured:
+    enabled: false
+    interactive: true
+    command: worldpoints
+    group: worldpoints_measured
+    args:
+      mode: measured
+      court: "{court}"
+      observe: "{dataset}/observe/measured_observations.yaml"
+      output: "{dataset}/measured_world_points.yaml"
